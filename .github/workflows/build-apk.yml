@@ -46,12 +46,15 @@ jobs:
                   applicationId "com.pomodoro.estudio"
                   minSdk 24
                   targetSdk 35
-                  versionCode 1
-                  versionName "1.0"
+                  versionCode 3
+                  versionName "3.0"
+              }
+              signingConfigs {
+                  // Llave fija para que las actualizaciones se instalen encima de la versión anterior
+                  fija { storeFile file('pomodoro.jks'); storePassword 'pomodoro123'; keyAlias 'pomodoro'; keyPassword 'pomodoro123' }
               }
               buildTypes {
-                  // El APK "release" se firma con la llave de depuración para poder instalarlo directo
-                  release { minifyEnabled false; signingConfig signingConfigs.debug }
+                  release { minifyEnabled false; signingConfig signingConfigs.fija }
               }
               compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
           }
@@ -152,149 +155,315 @@ jobs:
           mkdir -p "$(dirname app/src/main/assets/index.html)"
           cat > app/src/main/assets/index.html <<'FIN_ARCHIVO'
           <!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-          <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}[hidden]{display:none!important}</style>
           <title>Pomodoro de Estudio</title>
           <meta name="claude:viewport-fit-sides" content="cover">
           <link rel="preconnect" href="https://fonts.googleapis.com">
           <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@300;500;700&family=Figtree:wght@400;500;600;700&display=swap">
           <style>
-          /* Layout: una columna centrada; el reloj circular es el héroe, abajo controles, ajustes y registro del día */
+          /* Layout: una columna con dos pestañas (Estudiar / Etiquetas); Estudiar = armar sesión → reloj → resumen + registro de hoy */
           :root{
             --bg:#f6f3f1; --surface:#fffdfc; --line:#e6dfdb; --fg:#2a2220; --muted:#7a6d68;
-            --study:#c4412b; --short:#3f8a68; --long:#3d6ea8;
+            --study:#c4412b; --rest:#3f8a68; --soft:#f3e3df;
+            --t0:#c4412b; --t1:#3d6ea8; --t2:#3f8a68; --t3:#b07a1a; --t4:#7a52a8; --t5:#1f8a96; --t6:#b5527a; --t7:#6b7a2a;
             --accent:var(--study);
             --f-num:"Azeret Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
             --f-body:"Figtree",system-ui,-apple-system,"Segoe UI",sans-serif;
           }
           @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
             --bg:#181413; --surface:#211b19; --line:#352c29; --fg:#f1e9e5; --muted:#a3958f;
-            --study:#ef6a52; --short:#5fb48d; --long:#6f9dd6; color-scheme:dark}}
+            --study:#ef6a52; --rest:#5fb48d; --soft:#3a2420;
+            --t0:#ef6a52; --t1:#6f9dd6; --t2:#5fb48d; --t3:#dca547; --t4:#a985d6; --t5:#4cb8c4; --t6:#e07aa3; --t7:#a3b35a; color-scheme:dark}}
           :root[data-theme="dark"]{
             --bg:#181413; --surface:#211b19; --line:#352c29; --fg:#f1e9e5; --muted:#a3958f;
-            --study:#ef6a52; --short:#5fb48d; --long:#6f9dd6; color-scheme:dark}
-          body[data-mode="short"]{--accent:var(--short)}
-          body[data-mode="long"]{--accent:var(--long)}
+            --study:#ef6a52; --rest:#5fb48d; --soft:#3a2420;
+            --t0:#ef6a52; --t1:#6f9dd6; --t2:#5fb48d; --t3:#dca547; --t4:#a985d6; --t5:#4cb8c4; --t6:#e07aa3; --t7:#a3b35a; color-scheme:dark}
+          body[data-phase="rest"]{--accent:var(--rest)}
           *{box-sizing:border-box}
-          html,body{min-height:100%}
+          [hidden]{display:none!important}
           body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.5;
             padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
-            padding-block:28px 48px;transition:background .4s}
-          .wrap{max-width:520px;margin:0 auto;display:flex;flex-direction:column;gap:28px}
-          header{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
-          h1{font-size:1.15rem;font-weight:700;margin:0;letter-spacing:-.01em}
-          .cycle{font-family:var(--f-num);font-size:.8rem;color:var(--muted);font-variant-numeric:tabular-nums}
-          .tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px}
-          .tabs button{font:600 .85rem var(--f-body);border:0;background:transparent;color:var(--muted);padding:9px 6px;border-radius:999px;cursor:pointer;transition:.2s}
-          .tabs button[aria-pressed="true"]{background:var(--accent);color:#fff}
-          .clock{position:relative;width:min(320px,100%);aspect-ratio:1;max-width:100%;margin:0 auto}
+            padding-block:20px 48px}
+          .wrap{max-width:520px;margin:0 auto;display:flex;flex-direction:column;gap:24px}
+          header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+          h1{font-size:1.15rem;font-weight:700;margin:0}
+          h2{font-size:1.4rem;font-weight:700;margin:0;letter-spacing:-.01em;text-wrap:balance}
+          .eyebrow,.sec h3,.field-lbl{font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:700;margin:0}
+          .page,.view{display:flex;flex-direction:column;gap:22px}
+          button{font-family:var(--f-body);cursor:pointer}
+          button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+          .nav{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px}
+          .nav button{border:0;background:transparent;color:var(--muted);font:600 .9rem var(--f-body);padding:9px;border-radius:999px;font-variant-numeric:tabular-nums}
+          .nav button[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
+
+          /* chips / etiquetas */
+          .chips{display:flex;gap:8px;flex-wrap:wrap}
+          .chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:7px 12px;font:600 .82rem var(--f-body)}
+          .chip small{font:500 .75rem var(--f-num);color:var(--muted)}
+          .chip[aria-pressed="true"]{border-color:var(--fg);background:var(--soft)}
+          .chip .x{border:0;background:none;color:var(--muted);padding:0 0 0 2px;font-size:1rem;line-height:1}
+          .tdot{width:9px;height:9px;border-radius:50%;flex:none;display:inline-block}
+          .tag{display:inline-flex;align-items:center;gap:5px;font-size:.75rem;font-weight:600;color:var(--muted);white-space:nowrap}
+          .tag .tdot{width:7px;height:7px}
+          .chip.tagchip[aria-pressed="true"] .tdot{box-shadow:0 0 0 2px var(--bg),0 0 0 3.5px currentColor}
+          .addtag{display:flex;gap:8px}
+          .addtag input{flex:1;min-width:0}
+          .addtag button{border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:10px;padding:0 14px;font-weight:600}
+
+          /* armar sesión */
+          .rows{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
+          .row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px}
+          .row+.row{border-top:1px solid var(--line)}
+          .row .lbl b{display:block;font-weight:600}
+          .row .lbl span{font-size:.8rem;color:var(--muted)}
+          .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;vertical-align:1px}
+          .stepper{display:flex;align-items:center;gap:6px}
+          .stepper button{width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--bg);color:var(--fg);font-size:1.3rem;line-height:1}
+          .stepper input{width:64px;text-align:center;font:500 1.35rem var(--f-num);font-variant-numeric:tabular-nums;border:0;background:transparent;color:var(--fg);-moz-appearance:textfield}
+          .stepper input::-webkit-inner-spin-button{display:none}
+          .field{display:flex;flex-direction:column;gap:8px}
+          input[type=text]{font:500 1rem var(--f-body);background:var(--surface);color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:11px 13px;width:100%}
+          .plan{display:flex;flex-direction:column;gap:8px}
+          .bar{display:flex;gap:3px;height:14px}
+          .bar i{border-radius:3px;background:var(--study);min-width:3px}
+          .bar i.r{background:var(--rest)}
+          .bar i.done{opacity:.28}
+          .bar i.now{outline:2px solid var(--fg);outline-offset:1px}
+          .plan p{margin:0;font-size:.9rem;color:var(--muted)}
+          .plan p b{color:var(--fg);font-family:var(--f-num);font-weight:500}
+          .btn{font:600 .9rem var(--f-body);border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:11px 18px}
+          .btn.main{background:var(--accent);border-color:var(--accent);color:#fff;padding:15px 34px;font-size:1.05rem}
+          .btn.wide{width:100%}
+          .btn.ghost{border:0;background:none;color:var(--muted);text-decoration:underline;padding:6px}
+          .opts{display:flex;flex-direction:column;gap:8px}
+          .toggle{display:flex;align-items:center;gap:8px;font-size:.88rem}
+          .toggle input{width:18px;height:18px;accent-color:var(--study)}
+
+          /* reloj */
+          .runhead{display:flex;flex-direction:column;gap:6px}
+          .runhead .top{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+          .runhead .n{font-weight:700;min-width:0;overflow-wrap:anywhere}
+          .runhead .c{font-family:var(--f-num);font-size:.85rem;color:var(--muted);font-variant-numeric:tabular-nums}
+          .taglist{display:flex;gap:10px;flex-wrap:wrap}
+          .clock{position:relative;width:min(310px,100%);aspect-ratio:1;max-width:100%;margin:0 auto}
           .clock svg{width:100%;height:100%;transform:rotate(-90deg)}
           .track{fill:none;stroke:var(--line);stroke-width:6}
           .prog{fill:none;stroke:var(--accent);stroke-width:6;stroke-linecap:round;transition:stroke-dashoffset .5s linear,stroke .4s}
           .ticks line{stroke:var(--muted);stroke-width:1.2;opacity:.45}
-          .face{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
-          .time{font-family:var(--f-num);font-weight:300;font-size:clamp(3rem,15vw,4.4rem);letter-spacing:-.04em;font-variant-numeric:tabular-nums;line-height:1}
-          .label{font-size:.78rem;text-transform:uppercase;letter-spacing:.14em;color:var(--accent);font-weight:700}
-          .controls{display:flex;justify-content:center;align-items:center;gap:14px}
-          .btn{font:600 .9rem var(--f-body);border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:11px 18px;cursor:pointer}
-          .btn:hover{border-color:var(--muted)}
-          .btn.main{background:var(--accent);border-color:var(--accent);color:#fff;padding:15px 38px;font-size:1.05rem;min-width:150px}
-          button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-          .task{display:flex;flex-direction:column;gap:6px}
-          .task label,.sec h2{font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:700;margin:0}
-          input[type=text]{font:500 1rem var(--f-body);background:var(--surface);color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:11px 13px;width:100%}
-          .stats{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+          .face{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}
+          .time{font-family:var(--f-num);font-weight:300;font-size:clamp(3rem,15vw,4.3rem);letter-spacing:-.04em;font-variant-numeric:tabular-nums;line-height:1}
+          .phase{font-size:.78rem;text-transform:uppercase;letter-spacing:.14em;color:var(--accent);font-weight:700}
+          .nextup{font-size:.8rem;color:var(--muted)}
+          .controls{display:flex;justify-content:center;align-items:center;gap:12px;flex-wrap:wrap}
+          .confirm{display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+          .confirm div{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+
+          .done{display:flex;flex-direction:column;gap:14px;align-items:flex-start}
+          .big{font-family:var(--f-num);font-size:2.6rem;font-weight:500;line-height:1;font-variant-numeric:tabular-nums}
+          .done p{margin:0;color:var(--muted)}
+
+          .stats{display:grid;grid-template-columns:repeat(2,1fr);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
           .stat{padding:14px 4px;text-align:center}
           .stat+.stat{border-left:1px solid var(--line)}
           .stat b{display:block;font-family:var(--f-num);font-weight:500;font-size:1.35rem;font-variant-numeric:tabular-nums}
           .stat span{font-size:.75rem;color:var(--muted)}
-          .dots{display:flex;gap:6px;justify-content:center}
-          .dots i{width:9px;height:9px;border-radius:50%;border:1.5px solid var(--study)}
-          .dots i.on{background:var(--study)}
           .sec{display:flex;flex-direction:column;gap:10px}
-          .settings{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
-          .field{display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
-          .field span{font-size:.85rem}
-          .field input{width:58px;font:500 .95rem var(--f-num);text-align:right;background:transparent;border:0;color:var(--fg)}
-          .toggle{display:flex;align-items:center;gap:8px;font-size:.85rem}
-          details summary{cursor:pointer;font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:700;list-style:none}
-          details summary::before{content:"+ "}
-          details[open] summary::before{content:"− "}
-          details[open] summary{margin-bottom:10px}
-          .log{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
-          .log li{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:baseline;padding:9px 0;border-bottom:1px dashed var(--line)}
-          .log .t{font-family:var(--f-num);font-size:.8rem;color:var(--muted);font-variant-numeric:tabular-nums}
+          .log{list-style:none;margin:0;padding:0}
+          .log li{display:grid;grid-template-columns:auto 1fr auto;gap:4px 12px;align-items:baseline;padding:10px 0;border-bottom:1px dashed var(--line)}
+          .log .t,.log .d{font-family:var(--f-num);font-size:.8rem;font-variant-numeric:tabular-nums}
+          .log .t{color:var(--muted)}
           .log .n{min-width:0;overflow-wrap:anywhere}
-          .log .d{font-family:var(--f-num);font-size:.8rem;font-variant-numeric:tabular-nums}
-          .empty{color:var(--muted);font-size:.88rem;margin:0}
+          .log .tags{grid-column:2/4;display:flex;gap:10px;flex-wrap:wrap}
           .ex{font-size:.7rem;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:1px 5px;margin-left:6px}
-          .linkbtn{background:none;border:0;color:var(--muted);font:500 .8rem var(--f-body);cursor:pointer;text-decoration:underline;padding:0;align-self:flex-start}
-          .hint{font-size:.78rem;color:var(--muted);text-align:center;margin:0}
-          kbd{font-family:var(--f-num);font-size:.75rem;border:1px solid var(--line);border-radius:4px;padding:0 5px}
+          .empty{color:var(--muted);font-size:.88rem;display:block}
+
+          /* pestaña etiquetas */
+          .period{display:flex;gap:6px;flex-wrap:wrap}
+          .period button{border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:8px;padding:6px 11px;font:600 .82rem var(--f-body)}
+          .period button[aria-pressed="true"]{color:var(--fg);border-color:var(--fg)}
+          .sum{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+          .sum .big{font-size:2.2rem}
+          .sum span{color:var(--muted);font-size:.9rem}
+          .tlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
+          .tlist>li+li{border-top:1px solid var(--line)}
+          .trow{display:grid;grid-template-columns:auto 1fr auto auto;gap:4px 12px;align-items:center;padding:12px 14px;cursor:pointer}
+          .trow[aria-selected="true"]{background:var(--soft)}
+          .trow:first-child{border-radius:14px 14px 0 0}
+          .trow .nm{font-weight:600;min-width:0;overflow-wrap:anywhere}
+          .trow .mn{font-family:var(--f-num);font-size:.9rem;font-variant-numeric:tabular-nums;text-align:right}
+          .trow .meter{grid-column:2/4;height:5px;border-radius:3px;background:var(--line);overflow:hidden}
+          .trow .meter i{display:block;height:100%;border-radius:3px}
+          .trow .sub{grid-column:2/4;font-size:.75rem;color:var(--muted)}
+          .trow .acts{grid-row:1/4;grid-column:4;display:flex;gap:2px}
+          .icon{border:0;background:none;color:var(--muted);width:32px;height:32px;border-radius:8px;font-size:1rem}
+          .icon:hover{background:var(--bg);color:var(--fg)}
+          .tedit{display:flex;gap:8px;padding:10px 14px;align-items:center;flex-wrap:wrap}
+          .tedit input{flex:1;min-width:140px}
+          .tedit .colors{display:flex;gap:6px;flex-wrap:wrap}
+          .tedit .colors button{width:24px;height:24px;border-radius:50%;border:2px solid transparent}
+          .tedit .colors button[aria-pressed="true"]{border-color:var(--fg)}
+          .small{font-size:.85rem;padding:8px 14px}
+          .syncbox{border:1px solid var(--line);border-radius:14px;background:var(--surface);padding:14px}
+          .syncbox summary{cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;list-style:none;font-weight:600}
+          .syncbox summary::-webkit-details-marker{display:none}
+          .syncbox[open] summary{margin-bottom:12px}
+          .syncbody{display:flex;flex-direction:column;gap:10px}
+          .syncbody p{margin:0;font-size:.85rem;color:var(--muted)}
+          .st{font-size:.78rem;font-weight:600;color:var(--muted);display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+          .st i{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+          .st.ok i{background:var(--rest)}
+          .st.err i{background:var(--study)}
+          .btnrow{display:flex;gap:8px;flex-wrap:wrap}
           @media (prefers-reduced-motion: reduce){*{transition:none!important}}
-          @media (max-width:420px){.settings{grid-template-columns:1fr}}
           </style>
           </head><body>
 
           <div class="wrap">
             <header>
               <h1>Pomodoro de Estudio</h1>
-              <span class="cycle" id="cycleTxt">Ciclo 1 · pomodoro 1 de 4</span>
+              <span class="eyebrow" id="todayLbl"></span>
             </header>
 
-            <div class="tabs" role="group" aria-label="Modo">
-              <button id="tab-study" data-m="study" aria-pressed="true">Estudio</button>
-              <button id="tab-short" data-m="short" aria-pressed="false">Descanso</button>
-              <button id="tab-long" data-m="long" aria-pressed="false">Descanso largo</button>
+            <nav class="nav" aria-label="Secciones">
+              <button id="navStudy" aria-pressed="true">Estudiar</button>
+              <button id="navTags" aria-pressed="false">Etiquetas</button>
+            </nav>
+
+            <!-- ============ ESTUDIAR ============ -->
+            <div class="page" id="pageStudy">
+              <section class="view" id="vSetup">
+                <h2>Arma tu sesión</h2>
+                <div class="sec">
+                  <h3>Sesiones rápidas</h3>
+                  <div class="chips" id="presets"></div>
+                </div>
+                <div class="rows">
+                  <div class="row">
+                    <div class="lbl"><b><span class="dot" style="background:var(--study)"></span>Estudio</b><span>minutos por bloque</span></div>
+                    <div class="stepper"><button data-k="study" data-d="-5" aria-label="Menos estudio">−</button><input id="inStudy" type="number" inputmode="numeric" min="1" max="240"><button data-k="study" data-d="5" aria-label="Más estudio">+</button></div>
+                  </div>
+                  <div class="row">
+                    <div class="lbl"><b><span class="dot" style="background:var(--rest)"></span>Descanso</b><span>minutos entre bloques</span></div>
+                    <div class="stepper"><button data-k="rest" data-d="-1" aria-label="Menos descanso">−</button><input id="inRest" type="number" inputmode="numeric" min="1" max="120"><button data-k="rest" data-d="1" aria-label="Más descanso">+</button></div>
+                  </div>
+                  <div class="row">
+                    <div class="lbl"><b>Repeticiones</b><span>bloques de estudio</span></div>
+                    <div class="stepper"><button data-k="reps" data-d="-1" aria-label="Menos repeticiones">−</button><input id="inReps" type="number" inputmode="numeric" min="1" max="20"><button data-k="reps" data-d="1" aria-label="Más repeticiones">+</button></div>
+                  </div>
+                </div>
+
+                <div class="field">
+                  <span class="field-lbl">Etiquetas de esta sesión</span>
+                  <div class="chips" id="tagPick"></div>
+                  <form class="addtag" id="addTagForm">
+                    <input type="text" id="inNewTag" maxlength="24" placeholder="Nueva etiqueta, ej. Física">
+                    <button type="submit">Agregar</button>
+                  </form>
+                </div>
+
+                <div class="field">
+                  <label class="field-lbl" for="inName">Nota (opcional)</label>
+                  <input type="text" id="inName" maxlength="60" placeholder="Ej. capítulo 3, ejercicios 1 al 20">
+                </div>
+
+                <div class="plan">
+                  <div class="bar" id="planBar"></div>
+                  <p id="planTxt"></p>
+                </div>
+                <div class="opts">
+                  <label class="toggle"><input type="checkbox" id="optAuto"> Pasar solo al siguiente bloque</label>
+                  <label class="toggle"><input type="checkbox" id="optSound"> Sonido al terminar cada bloque</label>
+                </div>
+                <button class="btn main wide" id="btnGo">Empezar sesión</button>
+                <button class="btn ghost" id="btnSave">Guardar como sesión rápida</button>
+              </section>
+
+              <section class="view" id="vRun" hidden>
+                <div class="runhead">
+                  <div class="top"><span class="n" id="runName">Sesión de estudio</span><span class="c" id="runCount">1 de 4</span></div>
+                  <div class="taglist" id="runTags"></div>
+                </div>
+                <div class="bar" id="runBar"></div>
+                <div class="clock">
+                  <svg viewBox="0 0 200 200" aria-hidden="true">
+                    <g class="ticks" id="ticks"></g>
+                    <circle class="track" cx="100" cy="100" r="88"/>
+                    <circle class="prog" id="prog" cx="100" cy="100" r="88"/>
+                  </svg>
+                  <div class="face">
+                    <div class="phase" id="phaseLbl">Estudio</div>
+                    <div class="time" id="time">25:00</div>
+                    <div class="nextup" id="nextUp"></div>
+                  </div>
+                </div>
+                <div class="controls">
+                  <button class="btn" id="btnReset">Reiniciar</button>
+                  <button class="btn main" id="btnPlay">Pausar</button>
+                  <button class="btn" id="btnSkip">Saltar</button>
+                </div>
+                <div class="confirm" id="confirmEnd" hidden>
+                  <span>¿Terminar la sesión ahora?</span>
+                  <div><button class="btn" id="endNo">Seguir estudiando</button><button class="btn main" id="endYes">Terminar</button></div>
+                </div>
+                <button class="btn ghost" id="btnEnd">Terminar sesión</button>
+              </section>
+
+              <section class="view" id="vDone" hidden>
+                <div class="done">
+                  <span class="eyebrow">Sesión terminada</span>
+                  <div class="big" id="doneMin">0 min</div>
+                  <p id="doneTxt"></p>
+                  <div class="taglist" id="doneTags"></div>
+                  <button class="btn main" id="btnAgain">Repetir esta sesión</button>
+                  <button class="btn ghost" id="btnNew">Armar otra sesión</button>
+                </div>
+              </section>
+
+              <div class="stats">
+                <div class="stat"><b id="sMin">0</b><span>min de estudio hoy</span></div>
+                <div class="stat"><b id="sPom">0</b><span>bloques de estudio hoy</span></div>
+              </div>
+              <div class="sec">
+                <h3>Registro de hoy</h3>
+                <ul class="log" id="log"></ul>
+              </div>
+
+              <details class="syncbox" id="syncBox">
+                <summary><span>Sincronizar con Google Sheets</span><span class="st" id="syncSt"><i></i><span>Sin configurar</span></span></summary>
+                <div class="syncbody" id="syncLocal">
+                  <p>Cada bloque que termines se guarda en tu hoja “Pomodoro – Registro”, y lo que estudies en otros dispositivos aparece aquí.</p>
+                  <div class="field"><label class="field-lbl" for="inSyncUrl">Enlace del script</label>
+                    <input type="text" id="inSyncUrl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" spellcheck="false"></div>
+                  <div class="field"><label class="field-lbl" for="inSyncKey">Clave</label>
+                    <input type="text" id="inSyncKey" placeholder="La clave que está en el script" autocomplete="off" spellcheck="false"></div>
+                  <div class="btnrow"><button class="btn main small" id="btnSyncSave">Guardar y sincronizar</button><button class="btn small" id="btnSyncNow">Sincronizar ahora</button></div>
+                </div>
+                <div class="syncbody" id="syncArtifact" hidden>
+                  <p>Esta versión web no puede conectarse a Google. La sincronización funciona en la app del Mac (Pomodoro.html) y en la del celular.</p>
+                </div>
+              </details>
             </div>
 
-            <div class="clock">
-              <svg viewBox="0 0 200 200" aria-hidden="true">
-                <g class="ticks" id="ticks"></g>
-                <circle class="track" cx="100" cy="100" r="88"/>
-                <circle class="prog" id="prog" cx="100" cy="100" r="88"/>
-              </svg>
-              <div class="face">
-                <div class="label" id="modeLbl">Tiempo de estudio</div>
-                <div class="time" id="time" aria-live="off">25:00</div>
-                <div class="dots" id="dots"></div>
+            <!-- ============ ETIQUETAS ============ -->
+            <div class="page" id="pageTags" hidden>
+              <h2>Tus etiquetas</h2>
+              <div class="period" id="period">
+                <button data-p="1">Hoy</button>
+                <button data-p="7" aria-pressed="true">7 días</button>
+                <button data-p="30">30 días</button>
+                <button data-p="0">Todo</button>
+              </div>
+              <div class="sum"><span class="big" id="tTotal">0 min</span><span id="tTotalSub"></span></div>
+              <ul class="tlist" id="tList"></ul>
+              <form class="addtag" id="addTagForm2">
+                <input type="text" id="inNewTag2" maxlength="24" placeholder="Crear etiqueta">
+                <button type="submit">Agregar</button>
+              </form>
+              <div class="sec">
+                <h3 id="tDetailTitle">Bloques</h3>
+                <ul class="log" id="tDetail"></ul>
               </div>
             </div>
-
-            <div class="controls">
-              <button class="btn" id="reset" title="Reiniciar">Reiniciar</button>
-              <button class="btn main" id="start">Iniciar</button>
-              <button class="btn" id="skip" title="Saltar al siguiente">Saltar</button>
-            </div>
-            <p class="hint"><kbd>Espacio</kbd> inicia o pausa · <kbd>R</kbd> reinicia</p>
-
-            <div class="task">
-              <label for="taskIn">¿Qué estás estudiando?</label>
-              <input type="text" id="taskIn" placeholder="Ej. Cálculo, capítulo 3" maxlength="80">
-            </div>
-
-            <div class="stats">
-              <div class="stat"><b id="sMin">0</b><span>min de estudio hoy</span></div>
-              <div class="stat"><b id="sPom">0</b><span>pomodoros hoy</span></div>
-              <div class="stat"><b id="sRun">00:00</b><span>cronómetro de sesión</span></div>
-            </div>
-
-            <div class="sec">
-              <h2>Registro de hoy</h2>
-              <ul class="log" id="log"></ul>
-              <button class="linkbtn" id="clearLog">Borrar registro de hoy</button>
-            </div>
-
-            <details class="sec" id="cfg">
-              <summary>Ajustes</summary>
-              <div class="settings">
-                <label class="field"><span>Estudio (min)</span><input type="number" id="cStudy" min="1" max="180" value="25"></label>
-                <label class="field"><span>Descanso (min)</span><input type="number" id="cShort" min="1" max="60" value="5"></label>
-                <label class="field"><span>Descanso largo (min)</span><input type="number" id="cLong" min="1" max="90" value="15"></label>
-                <label class="field"><span>Descanso largo cada</span><input type="number" id="cEvery" min="2" max="10" value="4"></label>
-                <label class="toggle"><input type="checkbox" id="cAuto" checked> Empezar el siguiente bloque solo</label>
-                <label class="toggle"><input type="checkbox" id="cSound" checked> Sonido al terminar</label>
-              </div>
-            </details>
           </div>
 
           <script>
@@ -302,122 +471,364 @@ jobs:
           const $=id=>document.getElementById(id);
           const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},
                        set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
-          const today=new Date().toISOString().slice(0,10);
-          const LABELS={study:"Tiempo de estudio",short:"Descanso corto",long:"Descanso largo"};
+          const pad=n=>String(n).padStart(2,"0");
+          const dkey=d=>d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+          const hhmm=d=>pad(d.getHours())+":"+pad(d.getMinutes());
+          const today=dkey(new Date());
+          $("todayLbl").textContent=new Date().toLocaleDateString("es",{weekday:"long",day:"numeric",month:"long"});
+          const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+          const fmtDur=m=>m>=60?Math.floor(m/60)+" h"+(m%60?" "+m%60+" min":""):m+" min";
+          const dateLbl=k=>{if(k===today)return"Hoy";const d=new Date(k+"T12:00");const y=new Date();y.setDate(y.getDate()-1);
+            if(k===dkey(y))return"Ayer";return d.toLocaleDateString("es",{day:"numeric",month:"short"})};
 
-          let cfg=Object.assign({study:25,short:5,long:15,every:4,auto:true,sound:true},store.get("pomo.cfg",{}));
-          let day=store.get("pomo.day",null);
-          const isSample=!day||day.date!==today;
-          if(isSample){
-            // Ejemplo para que se vea cómo queda el registro; desaparece al terminar tu primer pomodoro
-            day={date:today,sample:true,log:[
-              {at:"08:30",task:"Repaso de anatomía",min:25,kind:"study"},
-              {at:"08:55",task:"Descanso",min:5,kind:"short"},
-              {at:"09:00",task:"Ejercicios de álgebra",min:25,kind:"study"}]};
+          /* ---------- datos ---------- */
+          const BUILTIN=[{n:"Clásica",study:25,rest:5,reps:4},{n:"Concentrada",study:50,rest:10,reps:3},{n:"Larga",study:90,rest:15,reps:2},{n:"Rápida",study:15,rest:3,reps:4}];
+          let cfg=Object.assign({study:25,rest:5,reps:4,name:"",tags:[],auto:true,sound:true},store.get("pomo.s2",{}));
+          if(!Array.isArray(cfg.tags))cfg.tags=[];
+          let mine=store.get("pomo.presets",[]);
+          let tags=store.get("pomo.tags",null);
+          let hist=store.get("pomo.hist",null);
+          let sample=false;
+          if(!hist){
+            // trae el registro de hoy de la versión anterior, si existe
+            const old=store.get("pomo.day",null);
+            if(old&&!old.sample&&Array.isArray(old.log)&&old.log.length){hist=old.log.map(e=>({date:old.date,at:e.at,kind:e.kind==="study"?"study":"rest",min:e.min,note:e.task==="Estudio"||e.task==="Descanso"?"":e.task,tags:[]}));store.set("pomo.hist",hist)}
           }
-          let mode="study",count=0,total=cfg.study*60,left=total,timer=null,endAt=0,runSec=0,runTick=null,wake=null;
+          if(!tags){tags=[{n:"Matemáticas",c:0},{n:"Lectura",c:1},{n:"Repaso",c:2}];store.set("pomo.tags",tags)}
+          if(!hist||!hist.length){
+            // ejemplos para ver cómo queda; desaparecen al terminar tu primer bloque
+            sample=true;const y=new Date();y.setDate(y.getDate()-1);const ay=dkey(y);const d3=new Date();d3.setDate(d3.getDate()-3);
+            hist=[
+              {date:dkey(d3),at:"16:00",kind:"study",min:50,note:"Guía de integrales",tags:["Matemáticas"]},
+              {date:ay,at:"09:00",kind:"study",min:25,note:"Capítulo 2",tags:["Lectura"]},
+              {date:ay,at:"09:30",kind:"study",min:25,note:"",tags:["Lectura","Repaso"]},
+              {date:today,at:"08:30",kind:"study",min:25,note:"Derivadas",tags:["Matemáticas"]},
+              {date:today,at:"08:55",kind:"rest",min:5,note:"",tags:[]},
+              {date:today,at:"09:00",kind:"study",min:25,note:"",tags:["Matemáticas","Repaso"]}];
+          }
+          function newId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
+          if(!sample){let ch=false;hist.forEach(e=>{if(!e.id){e.id=newId();e.sy=false;ch=true}if(!Array.isArray(e.tags))e.tags=[]});if(ch)store.set("pomo.hist",hist)}
+          const save=()=>store.set("pomo.s2",cfg);
+          const saveTags=()=>store.set("pomo.tags",tags);
+          const saveHist=()=>{if(!sample)store.set("pomo.hist",hist)};
+          const tagObj=n=>tags.find(t=>t.n===n);
+          const tcol=n=>{const t=tagObj(n);return `var(--t${t?t.c:7})`};
+          const tagHTML=list=>list.map(n=>`<span class="tag"><span class="tdot" style="background:${tcol(n)}"></span>${esc(n)}</span>`).join("");
 
-          const C=2*Math.PI*88; const prog=$("prog"); prog.style.strokeDasharray=C;
-          // marcas de minutos
-          (function(){let g="";for(let i=0;i<60;i++){const a=i/60*2*Math.PI,r1=i%5?94:92,r2=97;
-           g+=`<line x1="${100+r1*Math.cos(a)}" y1="${100+r1*Math.sin(a)}" x2="${100+r2*Math.cos(a)}" y2="${100+r2*Math.sin(a)}"/>`}
-           $("ticks").innerHTML=g})();
+          function addTag(raw){
+            const n=raw.trim().replace(/\s+/g," ").slice(0,24);if(!n)return null;
+            const ex=tags.find(t=>t.n.toLowerCase()===n.toLowerCase());if(ex)return ex.n;
+            const used=tags.map(t=>t.c);let c=0;for(let i=0;i<8;i++){if(!used.includes(i)){c=i;break}c=tags.length%8}
+            tags.push({n,c});saveTags();return n;
+          }
 
-          const fmt=s=>{s=Math.max(0,Math.round(s));const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;
-            return (h?h+":"+String(m).padStart(2,"0"):String(m).padStart(2,"0"))+":"+String(x).padStart(2,"0")};
+          /* ---------- navegación ---------- */
+          function go(p){$("pageStudy").hidden=p!=="study";$("pageTags").hidden=p!=="tags";
+            $("navStudy").setAttribute("aria-pressed",p==="study");$("navTags").setAttribute("aria-pressed",p==="tags");
+            if(p==="tags")renderTagsPage();window.scrollTo(0,0)}
+          $("navStudy").onclick=()=>go("study");$("navTags").onclick=()=>go("tags");
 
+          /* ---------- armar sesión ---------- */
+          const LIM={study:[1,240],rest:[1,120],reps:[1,20]};
+          const inputs={study:$("inStudy"),rest:$("inRest"),reps:$("inReps")};
+          function setVal(k,v){v=parseInt(v);if(isNaN(v))v=cfg[k];cfg[k]=Math.max(LIM[k][0],Math.min(LIM[k][1],v));inputs[k].value=cfg[k];save();renderPlan();renderPresets()}
+          document.querySelectorAll(".stepper button").forEach(b=>b.onclick=()=>{
+            const k=b.dataset.k,d=+b.dataset.d;let v=cfg[k]+d;
+            if(k==="study"&&Math.abs(d)===5){v=d>0?(cfg[k]<5?5:Math.floor(cfg[k]/5)*5+5):Math.ceil(cfg[k]/5)*5-5}
+            setVal(k,v)});
+          Object.entries(inputs).forEach(([k,el])=>el.onchange=()=>setVal(k,el.value));
+          $("inName").oninput=e=>{cfg.name=e.target.value;save()};
+          $("optAuto").onchange=e=>{cfg.auto=e.target.checked;save()};
+          $("optSound").onchange=e=>{cfg.sound=e.target.checked;save()};
+
+          function renderTagPick(){
+            cfg.tags=cfg.tags.filter(n=>tagObj(n));
+            $("tagPick").innerHTML=tags.length?tags.map(t=>`<button type="button" class="chip tagchip" data-n="${esc(t.n)}" aria-pressed="${cfg.tags.includes(t.n)}" style="color:var(--t${t.c})"><span class="tdot" style="background:var(--t${t.c})"></span><span style="color:var(--fg)">${esc(t.n)}</span></button>`).join("")
+              :'<span class="empty">Todavía no tienes etiquetas. Crea la primera aquí abajo.</span>';
+            $("tagPick").querySelectorAll(".tagchip").forEach(b=>b.onclick=()=>{
+              const n=b.dataset.n;cfg.tags=cfg.tags.includes(n)?cfg.tags.filter(x=>x!==n):cfg.tags.concat(n);save();renderTagPick()});
+          }
+          $("addTagForm").onsubmit=e=>{e.preventDefault();const n=addTag($("inNewTag").value);if(n){if(!cfg.tags.includes(n))cfg.tags.push(n);save()}$("inNewTag").value="";renderTagPick()};
+
+          function blocks(c){const a=[];for(let i=1;i<=c.reps;i++){a.push({k:"study",m:c.study,i});if(i<c.reps)a.push({k:"rest",m:c.rest,i})}return a}
+          function drawBar(el,list,cur){el.innerHTML=list.map((b,j)=>`<i class="${b.k==="rest"?"r":""}${cur!=null&&j<cur?" done":""}${j===cur?" now":""}" style="flex-grow:${b.m}" title="${b.k==="study"?"Estudio":"Descanso"} ${b.m} min"></i>`).join("")}
+          function renderPlan(){
+            const list=blocks(cfg),tot=list.reduce((a,b)=>a+b.m,0);
+            drawBar($("planBar"),list,null);
+            $("planTxt").innerHTML=`Duración total <b>${fmtDur(tot)}</b> · ${fmtDur(cfg.study*cfg.reps)} de estudio · si empiezas ya, terminas a las <b>${hhmm(new Date(Date.now()+tot*60000))}</b>`;
+          }
+          function renderPresets(){
+            const all=BUILTIN.map(p=>({...p,own:false})).concat(mine.map((p,i)=>({...p,own:true,idx:i})));
+            $("presets").innerHTML=all.map((p,j)=>{const on=p.study===cfg.study&&p.rest===cfg.rest&&p.reps===cfg.reps;
+              return `<button class="chip" data-j="${j}" aria-pressed="${on}">${esc(p.n)} <small>${p.study}/${p.rest} ×${p.reps}</small>${p.own?`<span class="x" data-del="${p.idx}" role="button" aria-label="Borrar ${esc(p.n)}">×</span>`:""}</button>`}).join("");
+            $("presets").querySelectorAll(".chip").forEach(ch=>ch.onclick=e=>{
+              const del=e.target.dataset.del;
+              if(del!=null){mine.splice(+del,1);store.set("pomo.presets",mine);renderPresets();return}
+              const p=all[+ch.dataset.j];["study","rest","reps"].forEach(k=>{cfg[k]=p[k];inputs[k].value=p[k]});
+              if(p.own){if(p.task!=null)$("inName").value=cfg.name=p.task;if(Array.isArray(p.tags))cfg.tags=p.tags.filter(n=>tagObj(n))}
+              save();renderPlan();renderPresets();renderTagPick()});
+          }
+          $("btnSave").onclick=()=>{
+            const n=(cfg.tags[0]||cfg.name.trim()||`Mía ${mine.length+1}`).slice(0,24);
+            mine.push({n,study:cfg.study,rest:cfg.rest,reps:cfg.reps,task:cfg.name.trim(),tags:cfg.tags.slice()});
+            store.set("pomo.presets",mine);renderPresets();
+            $("btnSave").textContent="Guardada ✓";setTimeout(()=>$("btnSave").textContent="Guardar como sesión rápida",1600);
+          };
+
+          /* ---------- reloj ---------- */
+          let plan=[],idx=0,total=0,left=0,timer=null,endAt=0,wake=null,actx=null,studied=0,sess={tags:[],name:""};
+          const C=2*Math.PI*88,prog=$("prog");prog.style.strokeDasharray=C;
+          (function(){let g="";for(let i=0;i<60;i++){const a=i/60*2*Math.PI,r1=i%5?94:92;
+           g+=`<line x1="${100+r1*Math.cos(a)}" y1="${100+r1*Math.sin(a)}" x2="${100+97*Math.cos(a)}" y2="${100+97*Math.sin(a)}"/>`}$("ticks").innerHTML=g})();
+          const fmt=s=>{s=Math.max(0,Math.ceil(s));const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return (h?h+":"+pad(m):pad(m))+":"+pad(x)};
+          function show(v){["vSetup","vRun","vDone"].forEach(id=>$(id).hidden=id!==v);window.scrollTo(0,0)}
+          function startSession(){
+            unlockAudio();plan=blocks(cfg);idx=0;studied=0;
+            sess={tags:cfg.tags.slice(),name:cfg.name.trim()};
+            $("runName").textContent=sess.name||(sess.tags.length?sess.tags.join(" · "):"Sesión de estudio");
+            $("runTags").innerHTML=tagHTML(sess.tags);
+            show("vRun");loadBlock(true);
+          }
+          function loadBlock(run){
+            stop();const b=plan[idx];document.body.dataset.phase=b.k;total=left=b.m*60;
+            $("phaseLbl").textContent=b.k==="study"?"Estudio":"Descanso";
+            $("runCount").textContent=`Repetición ${b.i} de ${cfg.reps}`;
+            const nx=plan[idx+1];$("nextUp").textContent=nx?`Después: ${nx.k==="study"?"estudio":"descanso"} ${nx.m} min`:"Último bloque";
+            drawBar($("runBar"),plan,idx);$("confirmEnd").hidden=true;render();if(run)start();
+          }
           function render(){
-            $("time").textContent=fmt(left);
-            prog.style.strokeDashoffset=C*(1-left/total);
+            $("time").textContent=fmt(left);prog.style.strokeDashoffset=C*(1-left/total);
+            $("btnPlay").textContent=timer?"Pausar":(left<total?"Seguir":"Iniciar");
+            $("navStudy").textContent=timer?"Estudiar · "+fmt(left):"Estudiar";
             document.title=(timer?fmt(left)+" · ":"")+"Pomodoro de Estudio";
-            const n=cfg.every, pos=count%n;
-            $("dots").innerHTML=Array.from({length:n},(_,i)=>`<i class="${i<pos?"on":""}"></i>`).join("");
-            $("cycleTxt").textContent=`Ciclo ${Math.floor(count/n)+1} · pomodoro ${pos+1} de ${n}`;
-            $("start").textContent=timer?"Pausar":(left<total?"Seguir":"Iniciar");
-            $("sRun").textContent=fmt(runSec);
           }
-          function renderDay(){
-            const st=day.log.filter(e=>e.kind==="study");
-            $("sMin").textContent=st.reduce((a,e)=>a+e.min,0);
-            $("sPom").textContent=st.length;
-            $("log").innerHTML=day.log.length?day.log.slice().reverse().map(e=>
-              `<li><span class="t">${e.at}</span><span class="n">${esc(e.task)}${day.sample?'<span class="ex">ejemplo</span>':""}</span><span class="d" style="color:var(--${e.kind})">${e.min} min</span></li>`).join("")
-              :'<li class="empty">Aún no terminas ningún bloque hoy. Pulsa Iniciar para empezar.</li>';
+          function start(){if(timer)return;endAt=Date.now()+left*1000;timer=setInterval(tick,250);
+            try{navigator.wakeLock&&navigator.wakeLock.request("screen").then(w=>wake=w).catch(()=>{})}catch(e){}render()}
+          function stop(){clearInterval(timer);timer=null;try{wake&&wake.release()}catch(e){}wake=null;render()}
+          function tick(){left=(endAt-Date.now())/1000;if(left<=0){left=0;blockDone()}else render()}
+          function logBlock(b,min){
+            if(min<=0)return;
+            if(sample){hist=[];sample=false}
+            const d=new Date();
+            hist.push({id:newId(),date:dkey(d),at:hhmm(d),kind:b.k,min,note:b.k==="study"?sess.name:"",tags:b.k==="study"?sess.tags.slice():[],sy:false});
+            saveHist();renderDay();doSync();
+            if(b.k==="study")studied+=min;
           }
-          const esc=s=>s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-
-          function setMode(m,keepRunning){
-            stop(); mode=m; document.body.dataset.mode=m;
-            document.querySelectorAll(".tabs button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.m===m));
-            $("modeLbl").textContent=LABELS[m];
-            total=left=cfg[m]*60; render();
-            if(keepRunning) start();
+          function partial(){const b=plan[idx];stop();logBlock(b,Math.round((total-left)/60))}
+          function blockDone(){const b=plan[idx];stop();logBlock(b,b.m);beep(idx===plan.length-1);
+            if(idx<plan.length-1){idx++;loadBlock(cfg.auto)}else finishSession()}
+          function finishSession(){
+            stop();document.body.dataset.phase="study";
+            $("doneMin").textContent=fmtDur(studied);
+            $("doneTxt").textContent=`${cfg.reps} ${cfg.reps===1?"repetición":"repeticiones"} de ${cfg.study} min con descansos de ${cfg.rest} min${sess.name?" · "+sess.name:""}.`;
+            $("doneTags").innerHTML=tagHTML(sess.tags);show("vDone");
           }
-          function start(){
-            if(timer) return;
-            endAt=Date.now()+left*1000;
-            timer=setInterval(tick,250);
-            if(!runTick) runTick=setInterval(()=>{runSec++;$("sRun").textContent=fmt(runSec)},1000);
-            try{navigator.wakeLock&&navigator.wakeLock.request("screen").then(w=>wake=w).catch(()=>{})}catch(e){}
-            render();
-          }
-          function stop(){
-            clearInterval(timer);timer=null;clearInterval(runTick);runTick=null;
-            try{wake&&wake.release()}catch(e){} wake=null; render();
-          }
-          function tick(){
-            left=(endAt-Date.now())/1000;
-            if(left<=0){left=0;finish();return}
-            render();
-          }
-          function finish(){
-            stop(); beep();
-            const now=new Date(), at=String(now.getHours()).padStart(2,"0")+":"+String(now.getMinutes()).padStart(2,"0");
-            if(day.sample){day={date:today,log:[]}}
-            day.log.push({at,kind:mode,min:cfg[mode],task:mode==="study"?($("taskIn").value.trim()||"Estudio"):LABELS[mode]});
-            store.set("pomo.day",day); renderDay();
-            next(cfg.auto);
-          }
-          function next(run){
-            let m;
-            if(mode==="study"){count++; m=count%cfg.every===0?"long":"short"} else m="study";
-            setMode(m,run);
-          }
-          let actx=null;
-          function beep(){
-            if(!cfg.sound) return;
-            try{actx=actx||new (window.AudioContext||window.webkitAudioContext)();
-              [0,.35,.7].forEach((t,i)=>{const o=actx.createOscillator(),g=actx.createGain();
-                o.type="sine";o.frequency.value=i===2?988:784;o.connect(g);g.connect(actx.destination);
-                const s=actx.currentTime+t;g.gain.setValueAtTime(0,s);g.gain.linearRampToValueAtTime(.25,s+.02);g.gain.exponentialRampToValueAtTime(.001,s+.3);
-                o.start(s);o.stop(s+.32)})}catch(e){}
-          }
-
-          $("start").onclick=()=>{ if(!actx&&cfg.sound){try{actx=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}} timer?stop():start() };
-          $("reset").onclick=()=>{stop();left=total;render()};
-          $("skip").onclick=()=>next(!!timer);
-          document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>setMode(b.dataset.m,false));
-          $("clearLog").onclick=()=>{day={date:today,log:[]};store.set("pomo.day",day);renderDay()};
-          document.addEventListener("keydown",e=>{
-            if(e.target.matches("input")) return;
-            if(e.code==="Space"){e.preventDefault();$("start").click()}
-            else if(e.key==="r"||e.key==="R"){$("reset").click()}
-          });
-          // ajustes
-          const map={cStudy:"study",cShort:"short",cLong:"long",cEvery:"every"};
-          Object.entries(map).forEach(([id,k])=>{$(id).value=cfg[k];$(id).onchange=e=>{
-            const v=Math.max(+e.target.min,Math.min(+e.target.max,parseInt(e.target.value)||cfg[k]));
-            e.target.value=v;cfg[k]=v;store.set("pomo.cfg",cfg);
-            if(!timer&&k===mode){total=left=v*60} render()}});
-          $("cAuto").checked=cfg.auto;$("cAuto").onchange=e=>{cfg.auto=e.target.checked;store.set("pomo.cfg",cfg)};
-          $("cSound").checked=cfg.sound;$("cSound").onchange=e=>{cfg.sound=e.target.checked;store.set("pomo.cfg",cfg)};
-          $("taskIn").value=store.get("pomo.task","");$("taskIn").oninput=e=>store.set("pomo.task",e.target.value);
+          function unlockAudio(){if(!actx&&cfg.sound){try{actx=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}}}
+          function beep(last){if(!cfg.sound||!actx)return;
+            try{(last?[0,.3,.6,.9]:[0,.35,.7]).forEach((t,i,a)=>{const o=actx.createOscillator(),g=actx.createGain();
+              o.frequency.value=i===a.length-1?988:784;o.connect(g);g.connect(actx.destination);
+              const s=actx.currentTime+t;g.gain.setValueAtTime(0,s);g.gain.linearRampToValueAtTime(.25,s+.02);g.gain.exponentialRampToValueAtTime(.001,s+.3);
+              o.start(s);o.stop(s+.32)})}catch(e){}}
+          $("btnGo").onclick=startSession;
+          $("btnPlay").onclick=()=>{unlockAudio();timer?stop():start()};
+          $("btnReset").onclick=()=>{stop();left=total;render()};
+          $("btnSkip").onclick=()=>{const r=!!timer;partial();if(idx<plan.length-1){idx++;loadBlock(r)}else finishSession()};
+          $("btnEnd").onclick=()=>{$("confirmEnd").hidden=false};
+          $("endNo").onclick=()=>{$("confirmEnd").hidden=true};
+          $("endYes").onclick=()=>{partial();finishSession()};
+          $("btnAgain").onclick=startSession;
+          $("btnNew").onclick=()=>{show("vSetup");renderPlan()};
+          document.addEventListener("keydown",e=>{if(e.target.matches("input")||$("vRun").hidden||$("pageStudy").hidden)return;
+            if(e.code==="Space"){e.preventDefault();$("btnPlay").click()}});
           document.addEventListener("visibilitychange",()=>{if(timer&&!document.hidden)tick()});
 
-          setMode("study",false); renderDay();
+          /* ---------- registro ---------- */
+          function rowHTML(e,showDate){
+            const label=e.kind==="study"?(e.note||(e.tags.length?"":"Estudio")):"Descanso";
+            return `<li><span class="t">${showDate?dateLbl(e.date)+" ":""}${e.at}</span><span class="n">${esc(label)}${sample?'<span class="ex">ejemplo</span>':""}</span><span class="d" style="color:var(--${e.kind==="study"?"study":"rest"})">${e.min} min</span>${e.tags.length?`<span class="tags">${tagHTML(e.tags)}</span>`:""}</li>`;
+          }
+          function renderDay(){
+            const td=hist.filter(e=>e.date===today),st=td.filter(e=>e.kind==="study");
+            $("sMin").textContent=st.reduce((a,e)=>a+e.min,0);$("sPom").textContent=st.length;
+            $("log").innerHTML=td.length?td.slice().reverse().map(e=>rowHTML(e,false)).join(""):'<li class="empty">Aún no terminas ningún bloque hoy.</li>';
+          }
+
+          /* ---------- pestaña etiquetas ---------- */
+          let period=7,selTag=null,editing=null,deleting=null;
+          document.querySelectorAll("#period button").forEach(b=>b.onclick=()=>{period=+b.dataset.p;
+            document.querySelectorAll("#period button").forEach(x=>x.setAttribute("aria-pressed",x===b));renderTagsPage()});
+          function inPeriod(e){if(!period)return true;const d=new Date();d.setDate(d.getDate()-(period-1));return e.date>=dkey(d)}
+          function renderTagsPage(){
+            const st=hist.filter(e=>e.kind==="study"&&inPeriod(e));
+            const tot=st.reduce((a,e)=>a+e.min,0);
+            $("tTotal").textContent=fmtDur(tot);
+            const days=new Set(st.map(e=>e.date)).size;
+            $("tTotalSub").textContent=`de estudio · ${st.length} ${st.length===1?"bloque":"bloques"} · ${days} ${days===1?"día":"días"}${sample?" · datos de ejemplo":""}`;
+            const rows=tags.map(t=>{const es=st.filter(e=>e.tags.includes(t.n));return{n:t.n,c:t.c,min:es.reduce((a,e)=>a+e.min,0),cnt:es.length}});
+            const none=st.filter(e=>!e.tags.length);
+            if(none.length)rows.push({n:null,c:null,min:none.reduce((a,e)=>a+e.min,0),cnt:none.length});
+            rows.sort((a,b)=>b.min-a.min);
+            const max=Math.max(1,...rows.map(r=>r.min));
+            $("tList").innerHTML=rows.length?rows.map(r=>{
+              const key=r.n===null?"__none":r.n,col=r.n===null?"var(--muted)":`var(--t${r.c})`;
+              if(editing===r.n&&r.n!==null)return `<li><div class="tedit"><input type="text" id="editName" maxlength="24" value="${esc(r.n)}" aria-label="Nombre de la etiqueta"><div class="colors">${[0,1,2,3,4,5,6,7].map(i=>`<button type="button" data-c="${i}" aria-label="Color ${i+1}" aria-pressed="${i===r.c}" style="background:var(--t${i})"></button>`).join("")}</div><button class="btn small" data-act="cancel">Cancelar</button><button class="btn main small" data-act="ok">Guardar</button></div></li>`;
+              if(deleting===r.n&&r.n!==null)return `<li><div class="confirm" style="border:0;border-radius:0"><span>¿Borrar “${esc(r.n)}”? Los bloques quedan, pero sin esta etiqueta.</span><div><button class="btn small" data-act="cancel">No</button><button class="btn main small" data-act="del">Borrar</button></div></div></li>`;
+              return `<li class="trow" data-k="${esc(key)}" aria-selected="${selTag===key}" tabindex="0">
+                <span class="tdot" style="background:${col}"></span><span class="nm">${r.n===null?"Sin etiqueta":esc(r.n)}</span><span class="mn">${fmtDur(r.min)}</span>
+                ${r.n===null?'<span class="acts"></span>':`<span class="acts"><button class="icon" data-act="edit" data-n="${esc(r.n)}" aria-label="Editar ${esc(r.n)}">✎</button><button class="icon" data-act="ask" data-n="${esc(r.n)}" aria-label="Borrar ${esc(r.n)}">×</button></span>`}
+                <span class="meter"><i style="width:${r.min/max*100}%;background:${col}"></i></span>
+                <span class="sub">${r.cnt} ${r.cnt===1?"bloque":"bloques"}${tot?" · "+Math.round(r.min/tot*100)+"% del tiempo":""}</span></li>`}).join("")
+              :'<li class="trow"><span></span><span class="empty">Crea tu primera etiqueta aquí abajo.</span></li>';
+
+            $("tList").querySelectorAll(".trow[data-k]").forEach(li=>{
+              const pick=()=>{selTag=selTag===li.dataset.k?null:li.dataset.k;renderTagsPage()};
+              li.onclick=e=>{if(e.target.closest("[data-act]"))return;pick()};
+              li.onkeydown=e=>{if(e.key==="Enter"&&e.target===li)pick()};
+            });
+            $("tList").querySelectorAll("[data-act]").forEach(b=>b.onclick=e=>{e.stopPropagation();const a=b.dataset.act;
+              if(a==="edit"){editing=b.dataset.n;deleting=null;renderTagsPage();const i=$("editName");i&&i.focus()}
+              else if(a==="ask"){deleting=b.dataset.n;editing=null;renderTagsPage()}
+              else if(a==="cancel"){editing=deleting=null;renderTagsPage()}
+              else if(a==="del"){const n=deleting;tags=tags.filter(t=>t.n!==n);hist.forEach(e=>e.tags=e.tags.filter(x=>x!==n));
+                cfg.tags=cfg.tags.filter(x=>x!==n);mine.forEach(p=>{if(p.tags)p.tags=p.tags.filter(x=>x!==n)});
+                if(selTag===n)selTag=null;deleting=null;saveTags();saveHist();save();store.set("pomo.presets",mine);refreshAll()}
+              else if(a==="ok")saveEdit();
+            });
+            $("tList").querySelectorAll(".colors button").forEach(b=>b.onclick=()=>{
+              $("tList").querySelectorAll(".colors button").forEach(x=>x.setAttribute("aria-pressed",x===b))});
+            const ei=$("editName");if(ei)ei.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();saveEdit()}if(e.key==="Escape"){editing=null;renderTagsPage()}};
+
+            // detalle
+            let list=st,title="Todos los bloques de estudio";
+            if(selTag==="__none"){list=st.filter(e=>!e.tags.length);title="Bloques sin etiqueta"}
+            else if(selTag){list=st.filter(e=>e.tags.includes(selTag));title="Bloques de “"+selTag+"”"}
+            $("tDetailTitle").textContent=title;
+            $("tDetail").innerHTML=list.length?list.slice().reverse().slice(0,60).map(e=>rowHTML(e,true)).join(""):'<li class="empty">No hay bloques en este periodo.</li>';
+          }
+          function saveEdit(){
+            const old=editing,t=tagObj(old);if(!t)return;
+            const nn=$("editName").value.trim().replace(/\s+/g," ").slice(0,24);
+            const cb=$("tList").querySelector('.colors button[aria-pressed="true"]');
+            if(cb)t.c=+cb.dataset.c;
+            if(nn&&nn!==old&&!tags.some(x=>x!==t&&x.n.toLowerCase()===nn.toLowerCase())){
+              t.n=nn;const ren=a=>a.map(x=>x===old?nn:x);
+              hist.forEach(e=>e.tags=ren(e.tags));cfg.tags=ren(cfg.tags);mine.forEach(p=>{if(p.tags)p.tags=ren(p.tags)});
+              if(selTag===old)selTag=nn;
+            }
+            editing=null;saveTags();saveHist();save();store.set("pomo.presets",mine);refreshAll();
+          }
+          $("addTagForm2").onsubmit=e=>{e.preventDefault();addTag($("inNewTag2").value);$("inNewTag2").value="";refreshAll()};
+          function refreshAll(){renderTagPick();renderDay();renderPresets();if(!$("pageTags").hidden)renderTagsPage()}
+
+          /* ---------- Google Sheets ---------- */
+          // Solo cuando la app corre como archivo (Mac) o dentro del APK; la página web publicada no puede salir a Google.
+          const LOCAL=location.protocol==="file:";
+          const DEVICE=/Android/i.test(navigator.userAgent)?"Android":/Macintosh|Mac OS/i.test(navigator.userAgent)?"Mac":/iPhone|iPad/i.test(navigator.userAgent)?"iPhone":"Computador";
+          let sync=Object.assign({url:"",key:"",last:null},store.get("pomo.sync",{}));
+          let syncing=false;
+          function syncStatus(kind,txt){const el=$("syncSt");el.className="st"+(kind?" "+kind:"");el.lastElementChild.textContent=txt}
+          function lastTxt(){if(!sync.last)return"Conectado";const d=new Date(sync.last);return"Sincronizado "+(dkey(d)===today?"a las "+hhmm(d):dateLbl(dkey(d)))}
+          const toRow=e=>({id:e.id,fecha:e.date,hora:e.at,tipo:e.kind==="study"?"estudio":"descanso",minutos:e.min,nota:e.note||"",etiquetas:e.tags,dispositivo:e.dev||DEVICE});
+          const fromRow=f=>({id:f.id,date:f.fecha,at:f.hora,kind:f.tipo==="descanso"?"rest":"study",min:+f.minutos||0,note:f.nota||"",tags:f.etiquetas||[],dev:f.dispositivo,sy:true});
+          async function doSync(){
+            if(!LOCAL||!sync.url||!sync.key||syncing)return;
+            syncing=true;syncStatus("","Sincronizando…");
+            try{
+              const pend=sample?[]:hist.filter(e=>!e.sy);
+              if(pend.length){
+                const r=await fetch(sync.url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({clave:sync.key,filas:pend.map(e=>({...toRow(e),dispositivo:DEVICE}))})});
+                const j=await r.json();if(!j.ok)throw new Error(j.error||"error");
+                const got=new Set(j.recibidas.map(String));hist.forEach(e=>{if(got.has(e.id)){e.sy=true;e.dev=e.dev||DEVICE}});
+              }
+              const g=await fetch(sync.url+(sync.url.includes("?")?"&":"?")+"clave="+encodeURIComponent(sync.key));
+              const j2=await g.json();if(!j2.ok)throw new Error(j2.error||"error");
+              if(sample&&j2.filas.length){hist=[];sample=false}
+              const have=new Set(hist.map(e=>e.id));let added=0;
+              j2.filas.forEach(f=>{if(!have.has(f.id)&&f.fecha){hist.push(fromRow(f));added++;(f.etiquetas||[]).forEach(n=>{if(!tagObj(n))addTag(n)})}});
+              if(added)hist.sort((a,b)=>(a.date+a.at).localeCompare(b.date+b.at));
+              if(!sample)store.set("pomo.hist",hist);
+              sync.last=Date.now();store.set("pomo.sync",sync);
+              syncStatus("ok",lastTxt());refreshAll();
+            }catch(err){
+              const pend=hist.filter(e=>!e.sy).length;
+              syncStatus("err",/clave/.test(err.message)?"Clave incorrecta":pend?`Sin conexión · ${pend} por enviar`:"Sin conexión");
+            }finally{syncing=false}
+          }
+          if(LOCAL){
+            $("inSyncUrl").value=sync.url;$("inSyncKey").value=sync.key;
+            syncStatus(sync.url?"ok":"",sync.url?lastTxt():"Sin configurar");
+            $("btnSyncSave").onclick=()=>{
+              const u=$("inSyncUrl").value.trim(),k=$("inSyncKey").value.trim();
+              if(!/^https:\/\/script\.google(usercontent)?\.com\//.test(u)){syncStatus("err","El enlace debe empezar por https://script.google.com/");return}
+              if(!k){syncStatus("err","Falta la clave");return}
+              sync.url=u;sync.key=k;store.set("pomo.sync",sync);doSync();
+            };
+            $("btnSyncNow").onclick=doSync;
+            window.addEventListener("online",doSync);
+            document.addEventListener("visibilitychange",()=>{if(!document.hidden)doSync()});
+            setInterval(doSync,5*60000);
+            setTimeout(doSync,800);
+          }else{
+            $("syncLocal").hidden=true;$("syncArtifact").hidden=false;syncStatus("","Solo en Mac y celular");
+          }
+
+          /* ---------- inicio ---------- */
+          Object.entries(inputs).forEach(([k,el])=>el.value=cfg[k]);
+          $("inName").value=cfg.name;$("optAuto").checked=cfg.auto;$("optSound").checked=cfg.sound;
+          renderPlan();renderPresets();renderTagPick();renderDay();
+          if(location.hash==="#etiquetas")go("tags");
+          setInterval(()=>{if(!$("vSetup").hidden&&!$("pageStudy").hidden)renderPlan()},30000);
           })();
           </script>
           </body></html>
+          FIN_ARCHIVO
+          base64 -d > app/pomodoro.jks <<'FIN_ARCHIVO'
+          MIIKGAIBAzCCCcIGCSqGSIb3DQEHAaCCCbMEggmvMIIJqzCCBbIGCSqGSIb3DQEHAaCCBaMEggWf
+          MIIFmzCCBZcGCyqGSIb3DQEMCgECoIIFQDCCBTwwZgYJKoZIhvcNAQUNMFkwOAYJKoZIhvcNAQUM
+          MCsEFIUz0GOHFu2l3hAxY4VneC8UuvSBAgInEAIBIDAMBggqhkiG9w0CCQUAMB0GCWCGSAFlAwQB
+          KgQQ5JxPWnZj7BpAUAfYtriH6gSCBNA0nM6vvj8QFhNggxxsBkdAmTORqqGNj88CKsSRt1zAzrRx
+          rrjMstPIEeySkdLQebFIhLu08K30edJXQmCYDgymYJnqUsMmo3IkWL6Wli/MA6m/BP9VHIDsZPP9
+          6B1fnIIPhXI3Lxurfadsz0iE1eKrOz/qDGbfuP4cAPrXnXWFUZ0C/aD0LWWQvWVzqHrqU+yVrahg
+          w3doAgGvssMOaeGM95d4XDfefk//kARqSq97SbHPd8mmm0vwnk+eBXqHLusVtdSSC3sHtBAF5Zs2
+          j0zgtn1vxipxYV9AdWWjuTz+6T5dcXvxmzH2zvZh4BSpP+UZv1o7QkYqb555f9kfIGWwNuQOORYn
+          zOKLqLK9W+ScfjlRsfWgxbcwLrtu4e9MhyZP7M1IdlCxslRETdbyzUTab+3lHEAbWomLoS0KXHYW
+          NtxIi68rpYaOYSLgiKjIDeNNAKGHWHOWXxfEpzBnoS1BsjJgdprK/RHDdGIavEBpnseR13CniKDM
+          k3epb3TpFPIka2/2SLP2WabiAE3RJavr1/2MrLrhftbrU5qD944P1V1WPq1E4MsiftO0Xo0yLTtW
+          LNfzPvwoD7mHnSfbdeBen0rEtvW3fiMPyFbd7H3dDPtTc2I2rV902iu69koDtetvdFVcz6v5/to3
+          lJSqQ6CK6hzvndnwGhCukqeMr7LvAEcaYWnXffpE1EWjBZUa/JQF60TO/OHCTNU26dtbOq2snmbA
+          Fhr4b80lQbNHnphy37kvWnaHYb+0fWuR6ybe+X7Dy80dm8jCFxUeOLVeVlINc+FHqxCPSIA6mbOc
+          tBnW5T9QBU+PcPlgjdcPRwzomQARhetoQjBKXXXxW7IMKQ5L0sUVS102/3NSYF1fLudm9razuqwY
+          nbvAum8TcE2+XeV1eOX1j1qA+T/5rfcvazaa8vh6Hp3Vut3/+d81ZQ+43nEfiDfeU26ZnJ6gErmn
+          h5BvKFOIZIbJpoagZG2Lh0qrdJ2PriSITz96kTjGfxPOgg6IWP3vXq4KkvCZIvv/YhDkKtruh0X8
+          G5Sy4Vw7oe3Zt226lcDZrUe+awOusUabyg8qHmyBK0vgvvEWmw7XAkG69fmPIpH+L5uGdSyKmNIk
+          2rQBqvL6Yyysw+DUjIAG5M2u+M5ekvpkeQMvEcW5rXWTuI2x6fwIwbZpt/xsbeLu3Q4zvFB1kuk2
+          rFnOy57zbDeumFZ8vTxSrS7Vb2/ad4JKjjhJZSfUwN3Hv8/JiKsauJP+uLtci08YZ7yjY1vx+rC6
+          OKPDEgqCtGs4Ip6CMRL5sKHeNjT7k5xI5+E6nx8p6ee+k1zq9pi1Rd2OoT61o2lo40xjBy43Tv1W
+          E9a75DPJFSjt0lErTLEJE8wnoz5AT52Zka+Lxske689bLmQRGPjeHkCUYPGgAcAtTdIn8IDPfHYS
+          eVZ+FUlrriBT/+8OARYaV5s935Gn4H02FZQ17EEjMNLGQNIGmnlxLrCmcnO2CvbxnKZBQOR3pquI
+          7GQO7qL5bSm11GELxtNge8wtGMASwknEfcP/4j2hDC6+fDH9E/+N4W7ZMk3mWnBRCwmilAgXCNSH
+          9qRW/VfTm2Of9gEMw22w2ogd7OjXuoYTBiJeTrXYlHh5HxbnHO3eLN/6YAUqi2cV+JSTrzHuiJT9
+          QzFEMB8GCSqGSIb3DQEJFDESHhAAcABvAG0AbwBkAG8AcgBvMCEGCSqGSIb3DQEJFTEUBBJUaW1l
+          IDE3OTIzOTQ4OTgwMTIwggPxBgkqhkiG9w0BBwagggPiMIID3gIBADCCA9cGCSqGSIb3DQEHATBm
+          BgkqhkiG9w0BBQ0wWTA4BgkqhkiG9w0BBQwwKwQUr9sK6jxP8R/cIBE2BjW/8jllG2cCAicQAgEg
+          MAwGCCqGSIb3DQIJBQAwHQYJYIZIAWUDBAEqBBC4FW5mQ+tRe2X7ZBDZ6zZigIIDYHamSaG+AEqj
+          17ke3AhGNw6sMgwHuSQoYreLUPaJC39DEO98EkxKOCCn8WN8MfGaFvFQpye6eZMypS6HED1i1mvx
+          D2sXc51qa+bP+Rlr2GBQUZ0SbIJnvSJDSdbpLDWbS/x4YWMCqJNxDiof3M/2cyxgOslt3zoOQUHV
+          rOGJH6KlbwoY7sn/gJeMjcVtNC70OTqcE3lg5Oib/sa7ozxMDC2s7o+htkgspnVcFeaCZJNXk3R9
+          jXWGJlLMcbSSTvPbTgmAmfaoiyZSBQzjqUZ0BPTw/jD5xF33mwNuN1G+PKivDsYwxcjwec5EXqLI
+          wUNZnfP6z8Gxndkz0PX0CvNIMq39TWtkGdDoGU++qNHD9wW/Kf6gI2WaKMlyFPrSddPHwAPhsFHY
+          j5Da2xueNETXIjdFprBHAWCDPe54cUFnlKgqL8M/js2rv8FWl2sCPeC1qPCWdvKCi61GxBAQ3LPK
+          CN6wZLhrEkENKs7ZmEexUMXZWdf3qXzK1JJ8ElZJNn4pqugrCFDssFjYSjfDvkUpvMNqFVU91sr0
+          36qyLSzvmEktKrsGVmYT5Z5F8PksoiPYHqBCCs6qxl7UYNf2Y3GQ+4AWHUDM51vV5OOpAleslZRV
+          b2fkRvCQLkIcC48lo5mPsuj/+1oXBUyZWWQdzp6JF62cdzNxgyjwt5c/COSBiS28lqiv8vDjytP0
+          X15xuHDa0DtDPwoyZtFyN7FXX5NXyXTfVOh1ge7RXbjAcq+eSx7wLPKmY6y6AeAgt3vmXoshekrK
+          5KrmlGtYzISKFbLqwKr5/I29m9tdONlfaUILIOGXAG+CtrpzUbwn2FLNo3tTE4jChWHTbdp9fIV3
+          8SRRoCw70pIkNYk/v2PGfHMFZ0V0UVR7uETO0dh97pqyyCcjTyd3CDYmFH3Kntid2RJn6orUQ+7X
+          V/Yi4s3RmhKCGJkgJO81zZmnuCagDw9ceupD023qSc6jVpWSXjcKIAOyNaFxmfnHChpbaVuIgyU8
+          x/vMRIUuwlEivnc0vvtdwdEzyyALKFSP+r8NZk53M73gjdcZBpr0RlD4KGqOHMWAiGWP2V9fksQ4
+          S95r0qstFv+SAVz5n7XfBjhQtDqlr5N5wKtn0MjUAAR5GqYX9m9NtPgG+qKArn64JR+4iPuNUOUP
+          7TBNMDEwDQYJYIZIAWUDBAIBBQAEID2MCgFZ9cHGcNSRSij3moJX9cUtyGK8RoHGs2sN/9x6BBSI
+          Taqq1Ioky8uQGzWT9u+4BRf4AQICJxA=
           FIN_ARCHIVO
           gradle assembleRelease --no-daemon
           mkdir -p "$GITHUB_WORKSPACE/salida" && cp app/build/outputs/apk/release/*.apk "$GITHUB_WORKSPACE/salida/Pomodoro.apk"
