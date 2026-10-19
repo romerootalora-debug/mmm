@@ -1,0 +1,17 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'com.pomodoro.estudio'
+    compileSdk 35
+    defaultConfig {
+        applicationId "com.pomodoro.estudio"
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName "1.0"
+    }
+    buildTypes {
+        // El APK "release" se firma con la llave de depuración para poder instalarlo directo
+        release { minifyEnabled false; signingConfig signingConfigs.debug }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}

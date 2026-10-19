@@ -1,0 +1,267 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}[hidden]{display:none!important}</style>
+<title>Pomodoro de Estudio</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@300;500;700&family=Figtree:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: una columna centrada; el reloj circular es el héroe, abajo controles, ajustes y registro del día */
+:root{
+  --bg:#f6f3f1; --surface:#fffdfc; --line:#e6dfdb; --fg:#2a2220; --muted:#7a6d68;
+  --study:#c4412b; --short:#3f8a68; --long:#3d6ea8;
+  --accent:var(--study);
+  --f-num:"Azeret Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+  --f-body:"Figtree",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#181413; --surface:#211b19; --line:#352c29; --fg:#f1e9e5; --muted:#a3958f;
+  --study:#ef6a52; --short:#5fb48d; --long:#6f9dd6; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#181413; --surface:#211b19; --line:#352c29; --fg:#f1e9e5; --muted:#a3958f;
+  --study:#ef6a52; --short:#5fb48d; --long:#6f9dd6; color-scheme:dark}
+body[data-mode="short"]{--accent:var(--short)}
+body[data-mode="long"]{--accent:var(--long)}
+*{box-sizing:border-box}
+html,body{min-height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:28px 48px;transition:background .4s}
+.wrap{max-width:520px;margin:0 auto;display:flex;flex-direction:column;gap:28px}
+header{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+h1{font-size:1.15rem;font-weight:700;margin:0;letter-spacing:-.01em}
+.cycle{font-family:var(--f-num);font-size:.8rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px}
+.tabs button{font:600 .85rem var(--f-body);border:0;background:transparent;color:var(--muted);padding:9px 6px;border-radius:999px;cursor:pointer;transition:.2s}
+.tabs button[aria-pressed="true"]{background:var(--accent);color:#fff}
+.clock{position:relative;width:min(320px,100%);aspect-ratio:1;max-width:100%;margin:0 auto}
+.clock svg{width:100%;height:100%;transform:rotate(-90deg)}
+.track{fill:none;stroke:var(--line);stroke-width:6}
+.prog{fill:none;stroke:var(--accent);stroke-width:6;stroke-linecap:round;transition:stroke-dashoffset .5s linear,stroke .4s}
+.ticks line{stroke:var(--muted);stroke-width:1.2;opacity:.45}
+.face{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
+.time{font-family:var(--f-num);font-weight:300;font-size:clamp(3rem,15vw,4.4rem);letter-spacing:-.04em;font-variant-numeric:tabular-nums;line-height:1}
+.label{font-size:.78rem;text-transform:uppercase;letter-spacing:.14em;color:var(--accent);font-weight:700}
+.controls{display:flex;justify-content:center;align-items:center;gap:14px}
+.btn{font:600 .9rem var(--f-body);border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:11px 18px;cursor:pointer}
+.btn:hover{border-color:var(--muted)}
+.btn.main{background:var(--accent);border-color:var(--accent);color:#fff;padding:15px 38px;font-size:1.05rem;min-width:150px}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.task{display:flex;flex-direction:column;gap:6px}
+.task label,.sec h2{font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:700;margin:0}
+input[type=text]{font:500 1rem var(--f-body);background:var(--surface);color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:11px 13px;width:100%}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.stat{padding:14px 4px;text-align:center}
+.stat+.stat{border-left:1px solid var(--line)}
+.stat b{display:block;font-family:var(--f-num);font-weight:500;font-size:1.35rem;font-variant-numeric:tabular-nums}
+.stat span{font-size:.75rem;color:var(--muted)}
+.dots{display:flex;gap:6px;justify-content:center}
+.dots i{width:9px;height:9px;border-radius:50%;border:1.5px solid var(--study)}
+.dots i.on{background:var(--study)}
+.sec{display:flex;flex-direction:column;gap:10px}
+.settings{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.field{display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.field span{font-size:.85rem}
+.field input{width:58px;font:500 .95rem var(--f-num);text-align:right;background:transparent;border:0;color:var(--fg)}
+.toggle{display:flex;align-items:center;gap:8px;font-size:.85rem}
+details summary{cursor:pointer;font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:700;list-style:none}
+details summary::before{content:"+ "}
+details[open] summary::before{content:"− "}
+details[open] summary{margin-bottom:10px}
+.log{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.log li{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:baseline;padding:9px 0;border-bottom:1px dashed var(--line)}
+.log .t{font-family:var(--f-num);font-size:.8rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.log .n{min-width:0;overflow-wrap:anywhere}
+.log .d{font-family:var(--f-num);font-size:.8rem;font-variant-numeric:tabular-nums}
+.empty{color:var(--muted);font-size:.88rem;margin:0}
+.ex{font-size:.7rem;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:1px 5px;margin-left:6px}
+.linkbtn{background:none;border:0;color:var(--muted);font:500 .8rem var(--f-body);cursor:pointer;text-decoration:underline;padding:0;align-self:flex-start}
+.hint{font-size:.78rem;color:var(--muted);text-align:center;margin:0}
+kbd{font-family:var(--f-num);font-size:.75rem;border:1px solid var(--line);border-radius:4px;padding:0 5px}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+@media (max-width:420px){.settings{grid-template-columns:1fr}}
+</style>
+</head><body>
+
+<div class="wrap">
+  <header>
+    <h1>Pomodoro de Estudio</h1>
+    <span class="cycle" id="cycleTxt">Ciclo 1 · pomodoro 1 de 4</span>
+  </header>
+
+  <div class="tabs" role="group" aria-label="Modo">
+    <button id="tab-study" data-m="study" aria-pressed="true">Estudio</button>
+    <button id="tab-short" data-m="short" aria-pressed="false">Descanso</button>
+    <button id="tab-long" data-m="long" aria-pressed="false">Descanso largo</button>
+  </div>
+
+  <div class="clock">
+    <svg viewBox="0 0 200 200" aria-hidden="true">
+      <g class="ticks" id="ticks"></g>
+      <circle class="track" cx="100" cy="100" r="88"/>
+      <circle class="prog" id="prog" cx="100" cy="100" r="88"/>
+    </svg>
+    <div class="face">
+      <div class="label" id="modeLbl">Tiempo de estudio</div>
+      <div class="time" id="time" aria-live="off">25:00</div>
+      <div class="dots" id="dots"></div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="reset" title="Reiniciar">Reiniciar</button>
+    <button class="btn main" id="start">Iniciar</button>
+    <button class="btn" id="skip" title="Saltar al siguiente">Saltar</button>
+  </div>
+  <p class="hint"><kbd>Espacio</kbd> inicia o pausa · <kbd>R</kbd> reinicia</p>
+
+  <div class="task">
+    <label for="taskIn">¿Qué estás estudiando?</label>
+    <input type="text" id="taskIn" placeholder="Ej. Cálculo, capítulo 3" maxlength="80">
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b id="sMin">0</b><span>min de estudio hoy</span></div>
+    <div class="stat"><b id="sPom">0</b><span>pomodoros hoy</span></div>
+    <div class="stat"><b id="sRun">00:00</b><span>cronómetro de sesión</span></div>
+  </div>
+
+  <div class="sec">
+    <h2>Registro de hoy</h2>
+    <ul class="log" id="log"></ul>
+    <button class="linkbtn" id="clearLog">Borrar registro de hoy</button>
+  </div>
+
+  <details class="sec" id="cfg">
+    <summary>Ajustes</summary>
+    <div class="settings">
+      <label class="field"><span>Estudio (min)</span><input type="number" id="cStudy" min="1" max="180" value="25"></label>
+      <label class="field"><span>Descanso (min)</span><input type="number" id="cShort" min="1" max="60" value="5"></label>
+      <label class="field"><span>Descanso largo (min)</span><input type="number" id="cLong" min="1" max="90" value="15"></label>
+      <label class="field"><span>Descanso largo cada</span><input type="number" id="cEvery" min="2" max="10" value="4"></label>
+      <label class="toggle"><input type="checkbox" id="cAuto" checked> Empezar el siguiente bloque solo</label>
+      <label class="toggle"><input type="checkbox" id="cSound" checked> Sonido al terminar</label>
+    </div>
+  </details>
+</div>
+
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},
+             set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+const today=new Date().toISOString().slice(0,10);
+const LABELS={study:"Tiempo de estudio",short:"Descanso corto",long:"Descanso largo"};
+
+let cfg=Object.assign({study:25,short:5,long:15,every:4,auto:true,sound:true},store.get("pomo.cfg",{}));
+let day=store.get("pomo.day",null);
+const isSample=!day||day.date!==today;
+if(isSample){
+  // Ejemplo para que se vea cómo queda el registro; desaparece al terminar tu primer pomodoro
+  day={date:today,sample:true,log:[
+    {at:"08:30",task:"Repaso de anatomía",min:25,kind:"study"},
+    {at:"08:55",task:"Descanso",min:5,kind:"short"},
+    {at:"09:00",task:"Ejercicios de álgebra",min:25,kind:"study"}]};
+}
+let mode="study",count=0,total=cfg.study*60,left=total,timer=null,endAt=0,runSec=0,runTick=null,wake=null;
+
+const C=2*Math.PI*88; const prog=$("prog"); prog.style.strokeDasharray=C;
+// marcas de minutos
+(function(){let g="";for(let i=0;i<60;i++){const a=i/60*2*Math.PI,r1=i%5?94:92,r2=97;
+ g+=`<line x1="${100+r1*Math.cos(a)}" y1="${100+r1*Math.sin(a)}" x2="${100+r2*Math.cos(a)}" y2="${100+r2*Math.sin(a)}"/>`}
+ $("ticks").innerHTML=g})();
+
+const fmt=s=>{s=Math.max(0,Math.round(s));const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;
+  return (h?h+":"+String(m).padStart(2,"0"):String(m).padStart(2,"0"))+":"+String(x).padStart(2,"0")};
+
+function render(){
+  $("time").textContent=fmt(left);
+  prog.style.strokeDashoffset=C*(1-left/total);
+  document.title=(timer?fmt(left)+" · ":"")+"Pomodoro de Estudio";
+  const n=cfg.every, pos=count%n;
+  $("dots").innerHTML=Array.from({length:n},(_,i)=>`<i class="${i<pos?"on":""}"></i>`).join("");
+  $("cycleTxt").textContent=`Ciclo ${Math.floor(count/n)+1} · pomodoro ${pos+1} de ${n}`;
+  $("start").textContent=timer?"Pausar":(left<total?"Seguir":"Iniciar");
+  $("sRun").textContent=fmt(runSec);
+}
+function renderDay(){
+  const st=day.log.filter(e=>e.kind==="study");
+  $("sMin").textContent=st.reduce((a,e)=>a+e.min,0);
+  $("sPom").textContent=st.length;
+  $("log").innerHTML=day.log.length?day.log.slice().reverse().map(e=>
+    `<li><span class="t">${e.at}</span><span class="n">${esc(e.task)}${day.sample?'<span class="ex">ejemplo</span>':""}</span><span class="d" style="color:var(--${e.kind})">${e.min} min</span></li>`).join("")
+    :'<li class="empty">Aún no terminas ningún bloque hoy. Pulsa Iniciar para empezar.</li>';
+}
+const esc=s=>s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function setMode(m,keepRunning){
+  stop(); mode=m; document.body.dataset.mode=m;
+  document.querySelectorAll(".tabs button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.m===m));
+  $("modeLbl").textContent=LABELS[m];
+  total=left=cfg[m]*60; render();
+  if(keepRunning) start();
+}
+function start(){
+  if(timer) return;
+  endAt=Date.now()+left*1000;
+  timer=setInterval(tick,250);
+  if(!runTick) runTick=setInterval(()=>{runSec++;$("sRun").textContent=fmt(runSec)},1000);
+  try{navigator.wakeLock&&navigator.wakeLock.request("screen").then(w=>wake=w).catch(()=>{})}catch(e){}
+  render();
+}
+function stop(){
+  clearInterval(timer);timer=null;clearInterval(runTick);runTick=null;
+  try{wake&&wake.release()}catch(e){} wake=null; render();
+}
+function tick(){
+  left=(endAt-Date.now())/1000;
+  if(left<=0){left=0;finish();return}
+  render();
+}
+function finish(){
+  stop(); beep();
+  const now=new Date(), at=String(now.getHours()).padStart(2,"0")+":"+String(now.getMinutes()).padStart(2,"0");
+  if(day.sample){day={date:today,log:[]}}
+  day.log.push({at,kind:mode,min:cfg[mode],task:mode==="study"?($("taskIn").value.trim()||"Estudio"):LABELS[mode]});
+  store.set("pomo.day",day); renderDay();
+  next(cfg.auto);
+}
+function next(run){
+  let m;
+  if(mode==="study"){count++; m=count%cfg.every===0?"long":"short"} else m="study";
+  setMode(m,run);
+}
+let actx=null;
+function beep(){
+  if(!cfg.sound) return;
+  try{actx=actx||new (window.AudioContext||window.webkitAudioContext)();
+    [0,.35,.7].forEach((t,i)=>{const o=actx.createOscillator(),g=actx.createGain();
+      o.type="sine";o.frequency.value=i===2?988:784;o.connect(g);g.connect(actx.destination);
+      const s=actx.currentTime+t;g.gain.setValueAtTime(0,s);g.gain.linearRampToValueAtTime(.25,s+.02);g.gain.exponentialRampToValueAtTime(.001,s+.3);
+      o.start(s);o.stop(s+.32)})}catch(e){}
+}
+
+$("start").onclick=()=>{ if(!actx&&cfg.sound){try{actx=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}} timer?stop():start() };
+$("reset").onclick=()=>{stop();left=total;render()};
+$("skip").onclick=()=>next(!!timer);
+document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>setMode(b.dataset.m,false));
+$("clearLog").onclick=()=>{day={date:today,log:[]};store.set("pomo.day",day);renderDay()};
+document.addEventListener("keydown",e=>{
+  if(e.target.matches("input")) return;
+  if(e.code==="Space"){e.preventDefault();$("start").click()}
+  else if(e.key==="r"||e.key==="R"){$("reset").click()}
+});
+// ajustes
+const map={cStudy:"study",cShort:"short",cLong:"long",cEvery:"every"};
+Object.entries(map).forEach(([id,k])=>{$(id).value=cfg[k];$(id).onchange=e=>{
+  const v=Math.max(+e.target.min,Math.min(+e.target.max,parseInt(e.target.value)||cfg[k]));
+  e.target.value=v;cfg[k]=v;store.set("pomo.cfg",cfg);
+  if(!timer&&k===mode){total=left=v*60} render()}});
+$("cAuto").checked=cfg.auto;$("cAuto").onchange=e=>{cfg.auto=e.target.checked;store.set("pomo.cfg",cfg)};
+$("cSound").checked=cfg.sound;$("cSound").onchange=e=>{cfg.sound=e.target.checked;store.set("pomo.cfg",cfg)};
+$("taskIn").value=store.get("pomo.task","");$("taskIn").oninput=e=>store.set("pomo.task",e.target.value);
+document.addEventListener("visibilitychange",()=>{if(timer&&!document.hidden)tick()});
+
+setMode("study",false); renderDay();
+})();
+</script>
+</body></html>
