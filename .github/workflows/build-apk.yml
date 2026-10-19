@@ -46,8 +46,8 @@ jobs:
                   applicationId "com.pomodoro.estudio"
                   minSdk 24
                   targetSdk 35
-                  versionCode 3
-                  versionName "3.0"
+                  versionCode 4
+                  versionName "4.0"
               }
               signingConfigs {
                   // Llave fija para que las actualizaciones se instalen encima de la versión anterior
@@ -56,6 +56,7 @@ jobs:
               buildTypes {
                   release { minifyEnabled false; signingConfig signingConfigs.fija }
               }
+              lint { checkReleaseBuilds false; abortOnError false }
               compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
           }
           FIN_ARCHIVO
@@ -64,6 +65,10 @@ jobs:
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <uses-permission android:name="android.permission.VIBRATE" />
+              <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
+              <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
               <application
                   android:label="@string/app_name"
                   android:icon="@mipmap/ic_launcher"
@@ -78,6 +83,8 @@ jobs:
                           <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
                   </activity>
+                  <receiver android:name=".AlarmaReceiver" android:exported="false" />
+                  <receiver android:name=".AccionReceiver" android:exported="false" />
               </application>
           </manifest>
           FIN_ARCHIVO
@@ -86,35 +93,355 @@ jobs:
           package com.pomodoro.estudio;
 
           import android.app.Activity;
+          import android.content.pm.PackageManager;
+          import android.os.Build;
           import android.os.Bundle;
           import android.view.WindowManager;
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
 
+          import java.lang.ref.WeakReference;
+
           public class MainActivity extends Activity {
+              static WeakReference<MainActivity> actual = new WeakReference<>(null);
               private WebView web;
 
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
+                  actual = new WeakReference<>(this);
+                  Notif.canales(this);
+                  if (Build.VERSION.SDK_INT >= 33
+                          && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
+                      requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 1);
+                  }
                   // Mantiene la pantalla encendida mientras la app está abierta
                   getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                   web = new WebView(this);
                   WebSettings s = web.getSettings();
                   s.setJavaScriptEnabled(true);
-                  s.setDomStorageEnabled(true);           // guarda ajustes y registro
+                  s.setDomStorageEnabled(true);
                   s.setMediaPlaybackRequiresUserGesture(false);
                   web.setWebViewClient(new WebViewClient());
+                  web.addJavascriptInterface(new Puente(this), "PomodoroNativo");
                   setContentView(web);
                   if (savedInstanceState != null) web.restoreState(savedInstanceState);
                   else web.loadUrl("file:///android_asset/index.html");
               }
 
+              /** Botones de la notificación: Pausar/Seguir, Saltar, Terminar. */
+              void accion(String a) {
+                  if (web == null) return;
+                  String seguro = a.replaceAll("[^a-z]", "");
+                  web.evaluateJavascript("window.nativoAccion&&window.nativoAccion('" + seguro + "')", null);
+              }
+
+              // Atrás no cierra la app (así el temporizador sigue corriendo)
+              @Override public void onBackPressed() { moveTaskToBack(true); }
+
               @Override protected void onSaveInstanceState(Bundle out) { super.onSaveInstanceState(out); web.saveState(out); }
               @Override protected void onPause() { super.onPause(); web.onPause(); web.resumeTimers(); }
               @Override protected void onResume() { super.onResume(); web.onResume(); }
+
+              @Override
+              protected void onDestroy() {
+                  if (isFinishing()) Notif.fin(this);
+                  if (actual.get() == this) actual = new WeakReference<>(null);
+                  super.onDestroy();
+              }
           }
+          FIN_ARCHIVO
+          mkdir -p "$(dirname app/src/main/java/com/pomodoro/estudio/Puente.java)"
+          cat > app/src/main/java/com/pomodoro/estudio/Puente.java <<'FIN_ARCHIVO'
+          package com.pomodoro.estudio;
+
+          import android.content.Context;
+          import android.webkit.JavascriptInterface;
+
+          /** Lo que la página puede pedirle a Android. */
+          public class Puente {
+              private final Context c;
+
+              Puente(Context c) { this.c = c.getApplicationContext(); }
+
+              @JavascriptInterface
+              public void inicio(String tipo, String titulo, String detalle, double finMs, double totalMs,
+                                 String alarmaTitulo, String alarmaTexto) {
+                  Notif.corriendo(c, tipo, titulo, detalle, (long) finMs, (long) totalMs, alarmaTitulo, alarmaTexto);
+              }
+
+              @JavascriptInterface
+              public void pausa(String tipo, String titulo, String detalle, double restanteMs, double totalMs) {
+                  Notif.pausada(c, tipo, titulo, detalle, (long) restanteMs, (long) totalMs);
+              }
+
+              @JavascriptInterface
+              public void sonar(double finMs, String titulo, String texto) {
+                  Notif.sonar(c, (long) finMs, titulo, texto);
+              }
+
+              @JavascriptInterface
+              public void fin() { Notif.fin(c); }
+          }
+          FIN_ARCHIVO
+          mkdir -p "$(dirname app/src/main/java/com/pomodoro/estudio/Notif.java)"
+          cat > app/src/main/java/com/pomodoro/estudio/Notif.java <<'FIN_ARCHIVO'
+          package com.pomodoro.estudio;
+
+          import android.app.AlarmManager;
+          import android.app.Notification;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.app.PendingIntent;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.graphics.drawable.Icon;
+          import android.os.Build;
+
+          /** Notificación con cuenta regresiva y alarma de fin de bloque. */
+          public class Notif {
+              static final String CANAL_SESION = "sesion";
+              static final String CANAL_ALARMA = "alarma_v1";
+              static final int ID_SESION = 1;
+              static final int ID_ALARMA = 2;
+              static final int RC_ALARMA = 10;
+
+              static void canales(Context c) {
+                  if (Build.VERSION.SDK_INT < 26) return;
+                  NotificationManager nm = c.getSystemService(NotificationManager.class);
+                  NotificationChannel s = new NotificationChannel(CANAL_SESION, "Sesión en curso", NotificationManager.IMPORTANCE_LOW);
+                  s.setDescription("Tiempo restante del bloque, también en la pantalla de bloqueo");
+                  s.setShowBadge(false);
+                  s.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+                  NotificationChannel a = new NotificationChannel(CANAL_ALARMA, "Fin de bloque", NotificationManager.IMPORTANCE_HIGH);
+                  a.setDescription("Aviso con sonido y vibración al terminar cada bloque");
+                  a.enableVibration(true);
+                  a.setVibrationPattern(new long[]{0, 500, 250, 500, 250, 500});
+                  a.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+                  nm.createNotificationChannel(s);
+                  nm.createNotificationChannel(a);
+              }
+
+              static int color(String tipo) { return "rest".equals(tipo) ? 0xFF3F8A68 : 0xFFC4412B; }
+
+              @SuppressWarnings("deprecation")
+              static Notification.Builder base(Context c, String canal) {
+                  return Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(c, canal) : new Notification.Builder(c);
+              }
+
+              static PendingIntent abrir(Context c) {
+                  Intent i = new Intent(c, MainActivity.class);
+                  i.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+                  return PendingIntent.getActivity(c, 0, i, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+              }
+
+              static Notification.Action boton(Context c, String accion, String texto, int rc) {
+                  Intent i = new Intent(c, AccionReceiver.class);
+                  i.setAction(accion);
+                  PendingIntent pi = PendingIntent.getBroadcast(c, rc, i, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+                  return new Notification.Action.Builder((Icon) null, texto, pi).build();
+              }
+
+              static SharedPreferences prefs(Context c) { return c.getSharedPreferences("pomodoro", Context.MODE_PRIVATE); }
+
+              static String mmss(long ms) {
+                  long s = Math.max(0, (ms + 999) / 1000);
+                  return String.format(java.util.Locale.US, "%02d:%02d", s / 60, s % 60);
+              }
+
+              @SuppressWarnings("deprecation")
+              static void corriendo(Context c, String tipo, String titulo, String detalle, long fin, long total,
+                                    String alarmaTitulo, String alarmaTexto) {
+                  long ahora = System.currentTimeMillis();
+                  int prog = (int) Math.max(0, Math.min(1000, 1000 - (fin - ahora) * 1000 / Math.max(1, total)));
+                  Notification.Builder b = base(c, CANAL_SESION)
+                          .setSmallIcon(R.drawable.ic_stat)
+                          .setContentTitle(titulo)
+                          .setContentText(detalle)
+                          .setColor(color(tipo))
+                          .setOngoing(true)
+                          .setOnlyAlertOnce(true)
+                          .setShowWhen(true)
+                          .setWhen(fin)
+                          .setUsesChronometer(true)
+                          .setChronometerCountDown(true)
+                          .setProgress(1000, prog, false)
+                          .setCategory(Notification.CATEGORY_PROGRESS)
+                          .setVisibility(Notification.VISIBILITY_PUBLIC)
+                          .setPriority(Notification.PRIORITY_LOW)
+                          .setContentIntent(abrir(c))
+                          .addAction(boton(c, "toggle", "Pausar", 1))
+                          .addAction(boton(c, "saltar", "Saltar", 2))
+                          .addAction(boton(c, "terminar", "Terminar", 3));
+                  mostrar(c, ID_SESION, b.build());
+
+                  long seq = prefs(c).getLong("seq", 0) + 1;
+                  prefs(c).edit().putLong("seq", seq).apply();
+                  programarAlarma(c, fin, seq, tipo, alarmaTitulo, alarmaTexto);
+              }
+
+              @SuppressWarnings("deprecation")
+              static void pausada(Context c, String tipo, String titulo, String detalle, long restante, long total) {
+                  cancelarAlarma(c);
+                  prefs(c).edit().putLong("seq", prefs(c).getLong("seq", 0) + 1).apply();
+                  int prog = (int) Math.max(0, Math.min(1000, 1000 - restante * 1000 / Math.max(1, total)));
+                  Notification.Builder b = base(c, CANAL_SESION)
+                          .setSmallIcon(R.drawable.ic_stat)
+                          .setContentTitle(titulo)
+                          .setContentText("En pausa · quedan " + mmss(restante) + " · " + detalle)
+                          .setColor(color(tipo))
+                          .setOngoing(true)
+                          .setOnlyAlertOnce(true)
+                          .setShowWhen(false)
+                          .setProgress(1000, prog, false)
+                          .setCategory(Notification.CATEGORY_PROGRESS)
+                          .setVisibility(Notification.VISIBILITY_PUBLIC)
+                          .setPriority(Notification.PRIORITY_LOW)
+                          .setContentIntent(abrir(c))
+                          .addAction(boton(c, "toggle", restante < total ? "Seguir" : "Iniciar", 1))
+                          .addAction(boton(c, "saltar", "Saltar", 2))
+                          .addAction(boton(c, "terminar", "Terminar", 3));
+                  mostrar(c, ID_SESION, b.build());
+              }
+
+              /** La app (si está viva) avisa ella misma al terminar un bloque. */
+              static void sonar(Context c, long fin, String titulo, String texto) {
+                  SharedPreferences p = prefs(c);
+                  if (p.getLong("sonado", 0) == fin) return;
+                  p.edit().putLong("sonado", fin).apply();
+                  alerta(c, titulo, texto, "rest");
+              }
+
+              @SuppressWarnings("deprecation")
+              static void alerta(Context c, String titulo, String texto, String tipo) {
+                  Notification.Builder b = base(c, CANAL_ALARMA)
+                          .setSmallIcon(R.drawable.ic_stat)
+                          .setContentTitle(titulo)
+                          .setContentText(texto)
+                          .setColor(color(tipo))
+                          .setAutoCancel(true)
+                          .setCategory(Notification.CATEGORY_REMINDER)
+                          .setVisibility(Notification.VISIBILITY_PUBLIC)
+                          .setPriority(Notification.PRIORITY_HIGH)
+                          .setDefaults(Notification.DEFAULT_ALL)
+                          .setContentIntent(abrir(c));
+                  mostrar(c, ID_ALARMA, b.build());
+              }
+
+              static void fin(Context c) {
+                  cancelarAlarma(c);
+                  prefs(c).edit().putLong("seq", prefs(c).getLong("seq", 0) + 1).apply();
+                  NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
+                  nm.cancel(ID_SESION);
+              }
+
+              static void mostrar(Context c, int id, Notification n) {
+                  try {
+                      NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
+                      nm.notify(id, n);
+                  } catch (SecurityException e) {
+                      // Sin permiso de notificaciones: la app sigue funcionando sin ellas
+                  }
+              }
+
+              static PendingIntent alarmaPI(Context c, Intent i) {
+                  return PendingIntent.getBroadcast(c, RC_ALARMA, i, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+              }
+
+              static void programarAlarma(Context c, long fin, long seq, String tipo, String titulo, String texto) {
+                  Intent i = new Intent(c, AlarmaReceiver.class);
+                  i.putExtra("fin", fin);
+                  i.putExtra("seq", seq);
+                  i.putExtra("tipo", tipo);
+                  i.putExtra("titulo", titulo);
+                  i.putExtra("texto", texto);
+                  PendingIntent pi = alarmaPI(c, i);
+                  AlarmManager am = (AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
+                  try {
+                      if (Build.VERSION.SDK_INT >= 31 && !am.canScheduleExactAlarms()) {
+                          am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fin, pi);
+                      } else {
+                          am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fin, pi);
+                      }
+                  } catch (SecurityException e) {
+                      am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fin, pi);
+                  }
+              }
+
+              static void cancelarAlarma(Context c) {
+                  AlarmManager am = (AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
+                  am.cancel(alarmaPI(c, new Intent(c, AlarmaReceiver.class)));
+              }
+          }
+          FIN_ARCHIVO
+          mkdir -p "$(dirname app/src/main/java/com/pomodoro/estudio/AlarmaReceiver.java)"
+          cat > app/src/main/java/com/pomodoro/estudio/AlarmaReceiver.java <<'FIN_ARCHIVO'
+          package com.pomodoro.estudio;
+
+          import android.app.Notification;
+          import android.content.BroadcastReceiver;
+          import android.content.Context;
+          import android.content.Intent;
+
+          /** Suena al terminar el bloque aunque la app esté dormida o la pantalla apagada. */
+          public class AlarmaReceiver extends BroadcastReceiver {
+              @Override
+              @SuppressWarnings("deprecation")
+              public void onReceive(Context c, Intent i) {
+                  long fin = i.getLongExtra("fin", 0);
+                  long seq = i.getLongExtra("seq", -1);
+                  String titulo = i.getStringExtra("titulo");
+                  String texto = i.getStringExtra("texto");
+                  Notif.sonar(c, fin, titulo == null ? "Bloque terminado" : titulo, texto == null ? "" : texto);
+
+                  // Si la app no alcanzó a pasar al siguiente bloque, la notificación deja de contar
+                  if (Notif.prefs(c).getLong("seq", 0) == seq) {
+                      Notification n = Notif.base(c, Notif.CANAL_SESION)
+                              .setSmallIcon(R.drawable.ic_stat)
+                              .setContentTitle(titulo == null ? "Bloque terminado" : titulo)
+                              .setContentText("Toca para abrir la app y continuar")
+                              .setColor(Notif.color(i.getStringExtra("tipo")))
+                              .setOngoing(true)
+                              .setOnlyAlertOnce(true)
+                              .setVisibility(Notification.VISIBILITY_PUBLIC)
+                              .setPriority(Notification.PRIORITY_LOW)
+                              .setContentIntent(Notif.abrir(c))
+                              .addAction(Notif.boton(c, "terminar", "Terminar", 3))
+                              .build();
+                      Notif.mostrar(c, Notif.ID_SESION, n);
+                  }
+              }
+          }
+          FIN_ARCHIVO
+          mkdir -p "$(dirname app/src/main/java/com/pomodoro/estudio/AccionReceiver.java)"
+          cat > app/src/main/java/com/pomodoro/estudio/AccionReceiver.java <<'FIN_ARCHIVO'
+          package com.pomodoro.estudio;
+
+          import android.content.BroadcastReceiver;
+          import android.content.Context;
+          import android.content.Intent;
+
+          /** Recibe los botones de la notificación y se los pasa a la app. */
+          public class AccionReceiver extends BroadcastReceiver {
+              @Override
+              public void onReceive(Context c, Intent i) {
+                  MainActivity m = MainActivity.actual.get();
+                  String a = i.getAction();
+                  if (m != null && a != null) m.accion(a);
+                  else Notif.fin(c);
+              }
+          }
+          FIN_ARCHIVO
+          mkdir -p "$(dirname app/src/main/res/drawable/ic_stat.xml)"
+          cat > app/src/main/res/drawable/ic_stat.xml <<'FIN_ARCHIVO'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+              <path android:fillColor="#FFFFFFFF" android:pathData="M9,1h6v2h-6z"/>
+              <path android:fillColor="#FFFFFFFF"
+                  android:pathData="M12,4a9,9 0,1 0,0.01 0zM12,6a7,7 0,1 1,-0.01 0zM11,8v5.4l4.2,2.5 1,-1.7 -3.2,-1.9V8z"/>
+          </vector>
           FIN_ARCHIVO
           mkdir -p "$(dirname app/src/main/res/values/strings.xml)"
           cat > app/src/main/res/values/strings.xml <<'FIN_ARCHIVO'
@@ -594,7 +921,7 @@ jobs:
             $("phaseLbl").textContent=b.k==="study"?"Estudio":"Descanso";
             $("runCount").textContent=`Repetición ${b.i} de ${cfg.reps}`;
             const nx=plan[idx+1];$("nextUp").textContent=nx?`Después: ${nx.k==="study"?"estudio":"descanso"} ${nx.m} min`:"Último bloque";
-            drawBar($("runBar"),plan,idx);$("confirmEnd").hidden=true;render();if(run)start();
+            drawBar($("runBar"),plan,idx);$("confirmEnd").hidden=true;render();if(run)start();else syncN();
           }
           function render(){
             $("time").textContent=fmt(left);prog.style.strokeDashoffset=C*(1-left/total);
@@ -602,10 +929,25 @@ jobs:
             $("navStudy").textContent=timer?"Estudiar · "+fmt(left):"Estudiar";
             document.title=(timer?fmt(left)+" · ":"")+"Pomodoro de Estudio";
           }
+          /* Notificación de Android (solo dentro del APK, que expone window.PomodoroNativo) */
+          const N=window.PomodoroNativo||null;let lastN=0;
+          function nTitle(){const b=plan[idx];return (b.k==="study"?"Estudio":"Descanso")+" · "+(sess.name||(sess.tags.length?sess.tags.join(", "):"Sesión de estudio"))}
+          function nDetail(){const b=plan[idx],nx=plan[idx+1];return `Repetición ${b.i} de ${cfg.reps}`+(nx?` · después ${nx.k==="study"?"estudio":"descanso"} ${nx.m} min`:" · último bloque")}
+          function nAlarm(){const b=plan[idx],nx=plan[idx+1];
+            return [b.k==="study"?"Terminó el estudio":"Terminó el descanso",
+              nx?(cfg.auto?"Empezó: ":"Sigue: ")+(nx.k==="study"?"estudio":"descanso")+" de "+nx.m+" min":"¡Sesión completa!"]}
+          function syncN(){if(!N)return;try{
+            if(!plan.length||$("vRun").hidden){N.fin();return}
+            const b=plan[idx];
+            if(timer){const a=nAlarm();N.inicio(b.k,nTitle(),nDetail(),endAt,total*1000,a[0],a[1]);lastN=Date.now()}
+            else N.pausa(b.k,nTitle(),nDetail(),Math.max(0,left)*1000,total*1000);
+          }catch(e){}}
+          window.nativoAccion=a=>{if($("vRun").hidden)return;
+            if(a==="toggle")$("btnPlay").click();else if(a==="saltar")$("btnSkip").click();else if(a==="terminar")$("endYes").click()};
           function start(){if(timer)return;endAt=Date.now()+left*1000;timer=setInterval(tick,250);
-            try{navigator.wakeLock&&navigator.wakeLock.request("screen").then(w=>wake=w).catch(()=>{})}catch(e){}render()}
-          function stop(){clearInterval(timer);timer=null;try{wake&&wake.release()}catch(e){}wake=null;render()}
-          function tick(){left=(endAt-Date.now())/1000;if(left<=0){left=0;blockDone()}else render()}
+            try{navigator.wakeLock&&navigator.wakeLock.request("screen").then(w=>wake=w).catch(()=>{})}catch(e){}render();syncN()}
+          function stop(){clearInterval(timer);timer=null;try{wake&&wake.release()}catch(e){}wake=null;render();syncN()}
+          function tick(){left=(endAt-Date.now())/1000;if(left<=0){left=0;blockDone()}else{render();if(N&&Date.now()-lastN>30000)syncN()}}
           function logBlock(b,min){
             if(min<=0)return;
             if(sample){hist=[];sample=false}
@@ -615,23 +957,23 @@ jobs:
             if(b.k==="study")studied+=min;
           }
           function partial(){const b=plan[idx];stop();logBlock(b,Math.round((total-left)/60))}
-          function blockDone(){const b=plan[idx];stop();logBlock(b,b.m);beep(idx===plan.length-1);
+          function blockDone(){const b=plan[idx];if(N){try{const a=nAlarm();N.sonar(endAt,a[0],a[1])}catch(e){}}stop();logBlock(b,b.m);beep(idx===plan.length-1);
             if(idx<plan.length-1){idx++;loadBlock(cfg.auto)}else finishSession()}
           function finishSession(){
             stop();document.body.dataset.phase="study";
             $("doneMin").textContent=fmtDur(studied);
             $("doneTxt").textContent=`${cfg.reps} ${cfg.reps===1?"repetición":"repeticiones"} de ${cfg.study} min con descansos de ${cfg.rest} min${sess.name?" · "+sess.name:""}.`;
-            $("doneTags").innerHTML=tagHTML(sess.tags);show("vDone");
+            $("doneTags").innerHTML=tagHTML(sess.tags);show("vDone");syncN();
           }
           function unlockAudio(){if(!actx&&cfg.sound){try{actx=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}}}
-          function beep(last){if(!cfg.sound||!actx)return;
+          function beep(last){if(N||!cfg.sound||!actx)return;
             try{(last?[0,.3,.6,.9]:[0,.35,.7]).forEach((t,i,a)=>{const o=actx.createOscillator(),g=actx.createGain();
               o.frequency.value=i===a.length-1?988:784;o.connect(g);g.connect(actx.destination);
               const s=actx.currentTime+t;g.gain.setValueAtTime(0,s);g.gain.linearRampToValueAtTime(.25,s+.02);g.gain.exponentialRampToValueAtTime(.001,s+.3);
               o.start(s);o.stop(s+.32)})}catch(e){}}
           $("btnGo").onclick=startSession;
           $("btnPlay").onclick=()=>{unlockAudio();timer?stop():start()};
-          $("btnReset").onclick=()=>{stop();left=total;render()};
+          $("btnReset").onclick=()=>{stop();left=total;render();syncN()};
           $("btnSkip").onclick=()=>{const r=!!timer;partial();if(idx<plan.length-1){idx++;loadBlock(r)}else finishSession()};
           $("btnEnd").onclick=()=>{$("confirmEnd").hidden=false};
           $("endNo").onclick=()=>{$("confirmEnd").hidden=true};
